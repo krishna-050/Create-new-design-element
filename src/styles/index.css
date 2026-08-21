@@ -1,0 +1,16 @@
+@import './fonts.css';
+@import './tailwind.css';
+@import './theme.css';
+@import 'leaflet/dist/leaflet.css';
+
+html, body { height: 100%; margin: 0; }
+#root { height: 100%; }
+
+.leaflet-container {
+  border-radius: 0.75rem;
+  z-index: 0;
+}
+
+.leaflet-control-attribution {
+  font-size: 9px !important;
+}
