@@ -357,7 +357,7 @@ function IssueCard({ issue, onView, compact = false }) {
   );
 }
 
-function CitizenHeader({ page, navigate, notifCount, role, setRole, onBack }) {
+function CitizenHeader({ page, navigate, notifCount, role, setRole }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const navLinks = [
     { id: "home",       label: "Home",         icon: <Home size={16} /> },
@@ -371,15 +371,6 @@ function CitizenHeader({ page, navigate, notifCount, role, setRole, onBack }) {
       <div className="max-w-7xl mx-auto px-4 sm:px-6">
         <div className="flex items-center justify-between h-16">
           <div className="flex items-center gap-3">
-            {page !== "home" && (
-              <button
-                onClick={onBack}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold transition-all border border-white/20 active:scale-95 shadow-sm cursor-pointer"
-                title="Go Back"
-              >
-                <ArrowLeft size={15} /> <span>Back</span>
-              </button>
-            )}
             <button onClick={() => navigate("home")} className="flex items-center gap-3 flex-shrink-0 group">
               <div className="w-9 h-9 rounded-xl gradient-brand flex items-center justify-center shadow-md group-hover:scale-105 transition-transform glow-blue">
                 <MapPin size={18} className="text-white" />
@@ -1459,49 +1450,22 @@ function ReportIssuePage({ onSubmit, onBack }) {
           </div>
         </div>
 
-        {/* Live Location Map */}
-        <div className="bg-white rounded-2xl border border-border shadow-sm overflow-hidden">
-          <div className="px-5 py-3 border-b border-border flex items-center justify-between" style={{ background: "#F8FAFC" }}>
-            <div className="flex items-center gap-2">
-              <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
-                mapPosition ? "bg-green-600 text-white shadow-sm" : "bg-blue-100 text-blue-600"
-              }`}>
-                {mapPosition ? <Check size={14} /> : "4"}
-              </div>
-              <h3 className="font-semibold text-foreground text-sm">Automatic Pin Location</h3>
+        {/* Auto-Detected GPS Location */}
+        <div className="bg-white rounded-2xl border border-border shadow-sm p-4 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-xl bg-green-50 border border-green-200 text-green-700 flex items-center justify-center flex-shrink-0">
+              <MapPin size={20} />
             </div>
-            {mapPosition && (
-              <span className="text-xs text-green-600 font-medium flex items-center gap-1 bg-green-50 px-2.5 py-0.5 rounded-full border border-green-200">
-                <CheckCircle size={12} /> GPS Auto-Pinned
-              </span>
-            )}
-          </div>
-          <div className="p-5">
-            <p className="text-xs text-muted-foreground mb-3 flex items-center gap-1.5">
-              <MapPin size={12} className="text-[#2563EB]" /> Location automatically detected strictly via live device GPS. Manual pin selection is disabled.
-            </p>
-            <div className="rounded-xl overflow-hidden border border-border mb-3 shadow-sm" style={{ height: 280 }}>
-              <MapContainer center={mapPosition ?? RANCHI_CENTER} zoom={14} style={{ height: "100%", width: "100%" }}
-                key={mapPosition ? mapPosition.join(",") : "default"}>
-                <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-                <LocationPicker position={mapPosition} />
-              </MapContainer>
-            </div>
-            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
-              <Btn variant="outline" onClick={handleLocation} disabled={locating} className="flex items-center gap-2">
-                {locating ? <Loader2 size={14} className="animate-spin" /> : <Navigation size={14} />}
-                Re-detect GPS Location
-              </Btn>
-              {mapPosition && (
-                <div className="text-xs text-green-700 flex items-center gap-1.5 bg-green-50 border border-green-200 px-3 py-2 rounded-lg flex-1">
-                  <MapPin size={12} className="flex-shrink-0" />
-                  <span className="font-semibold flex-shrink-0">Auto Address:</span>
-                  <span className="text-green-800 truncate font-medium">{resolvedAddress || `${mapPosition[0].toFixed(4)}°N, ${mapPosition[1].toFixed(4)}°E`}</span>
-                </div>
-              )}
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-muted-foreground">Auto-Detected GPS Location</p>
+              <p className="text-sm font-bold text-foreground truncate">
+                📍 {resolvedAddress || "Ward 12, Ranchi, Jharkhand"}
+              </p>
             </div>
           </div>
+          <span className="text-xs bg-green-100 text-green-800 font-bold px-3 py-1 rounded-full border border-green-200 flex-shrink-0 flex items-center gap-1">
+            <CheckCircle size={12} /> Auto-Pinned
+          </span>
         </div>
 
         {/* Submit */}
@@ -3807,7 +3771,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-background">
-      <CitizenHeader page={page} navigate={navigate} notifCount={unreadCount} role={role} setRole={handleRoleSwitch} onBack={goBack} />
+      <CitizenHeader page={page} navigate={navigate} notifCount={unreadCount} role={role} setRole={handleRoleSwitch} />
       <main>
         {page === "home" && <HomePage navigate={navigate} issues={issues} />}
 
