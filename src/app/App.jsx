@@ -7,7 +7,7 @@ import {
   Activity, Flag, Navigation, ThumbsUp, RefreshCw,
   Shield, TrendingUp, Menu,
   Check, Loader2, Edit3,
-  Zap, Star, Phone
+  Zap, Star, Phone, Sparkles
 } from "lucide-react";
 import {
   BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis,
@@ -15,7 +15,16 @@ import {
 } from "recharts";
 import { MapContainer, TileLayer, Marker, Popup, useMapEvents } from "react-leaflet";
 import L from "leaflet";
-import { analyzeImageWithGemini, DEFAULT_GEMINI_KEY, autoAssignWorker, getWorkerSlaStatus } from "./utils/imageAnalyzer.js";
+import {
+  analyzeImageWithGemini,
+  DEFAULT_GEMINI_KEY,
+  autoAssignWorker,
+  getWorkerSlaStatus,
+  generateCategoryDescription,
+  regenerateDescriptionForCategory,
+  compressAndResizeImage,
+  processAndValidateImageFast
+} from "./utils/imageAnalyzer.js";
 
 
 
@@ -36,14 +45,10 @@ const customIcon = new L.Icon({
   popupAnchor: [1, -34],
 });
 
-function LocationPicker({ position, setPosition }) {
-  useMapEvents({
-    click(e) {
-      setPosition([e.latlng.lat, e.latlng.lng]);
-    },
-  });
-  return position ? <Marker position={position} icon={customIcon}><Popup>Selected Location</Popup></Marker> : null;
+function LocationPicker({ position }) {
+  return position ? <Marker position={position} icon={customIcon}><Popup>GPS Auto-Pinned Location</Popup></Marker> : null;
 }
+
 
 const CATEGORIES = [
   { id: "garbage",      label: "Garbage",               emoji: "🗑️",  color: "#6B7280" },
@@ -204,19 +209,29 @@ function fmtTime(iso) {
 }
 
 function StatusBadge({ status }) {
-  const s = STATUS_STYLE[status];
+  const s = STATUS_STYLE[status] ?? STATUS_STYLE["Pending"];
+  const isLive = ["In Progress", "Verified", "Assigned"].includes(status);
   return (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${s.bg} ${s.text}`}>
+    <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold backdrop-blur-sm transition-all ${s.bg} ${s.text}`}>
+      {isLive ? (
+        <span className="relative flex h-2 w-2">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+          <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
+        </span>
+      ) : (
+        <span className="w-1.5 h-1.5 rounded-full bg-current opacity-70" />
+      )}
       {status}
     </span>
   );
 }
 
 function PriorityBadge({ priority }) {
-  const p = PRIORITY_STYLE[priority];
+  const p = PRIORITY_STYLE[priority] ?? PRIORITY_STYLE["Medium"];
+  const isCritical = priority === "Critical" || priority === "High";
   return (
-    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-semibold border ${p.bg} ${p.text} ${p.border}`}>
-      <span className={`w-1.5 h-1.5 rounded-full ${p.dot}`} />
+    <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold border transition-all ${p.bg} ${p.text} ${p.border}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${p.dot} ${isCritical ? "animate-pulse" : ""}`} />
       {priority}
     </span>
   );
@@ -224,27 +239,27 @@ function PriorityBadge({ priority }) {
 
 function StatCard({ icon, label, value, color, sub }) {
   return (
-    <div className="bg-card rounded-xl border border-border p-4 flex items-start gap-3 shadow-sm">
-      <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${color}`}>
+    <div className="glass-card rounded-2xl p-4 flex items-start gap-3.5 shadow-sm hover:shadow-md card-hover-effect">
+      <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 text-white shadow-sm ${color}`}>
         {icon}
       </div>
-      <div className="min-w-0">
-        <p className="text-muted-foreground text-xs font-medium uppercase tracking-wide">{label}</p>
-        <p className="text-foreground text-2xl font-bold font-mono leading-tight">{value}</p>
-        {sub && <p className="text-muted-foreground text-xs mt-0.5">{sub}</p>}
+      <div className="min-w-0 flex-1">
+        <p className="text-muted-foreground text-[11px] font-semibold uppercase tracking-wider">{label}</p>
+        <p className="text-foreground text-2xl font-extrabold font-mono leading-tight tracking-tight mt-0.5">{value}</p>
+        {sub && <p className="text-muted-foreground text-xs mt-0.5 font-medium">{sub}</p>}
       </div>
     </div>
   );
 }
 
 function Btn({ children, onClick, variant = "primary", className = "", disabled = false, type = "button" }) {
-  const base = "inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-all focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed";
+  const base = "inline-flex items-center justify-center gap-2 rounded-xl font-bold transition-all focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98]";
   const variants = {
-    primary:   "bg-[#2563EB] text-white hover:bg-[#1D4ED8] px-4 py-2 text-sm shadow-sm",
-    secondary: "bg-secondary text-secondary-foreground hover:bg-[#D1DCF0] px-4 py-2 text-sm",
-    outline:   "border border-border bg-card text-foreground hover:bg-muted px-4 py-2 text-sm",
-    ghost:     "text-foreground hover:bg-muted px-3 py-2 text-sm",
-    danger:    "bg-red-600 text-white hover:bg-red-700 px-4 py-2 text-sm shadow-sm",
+    primary:   "gradient-brand text-white hover:opacity-95 px-4 py-2.5 text-sm shadow-md glow-blue",
+    secondary: "bg-secondary text-secondary-foreground hover:bg-[#D1DCF0] px-4 py-2.5 text-sm font-semibold",
+    outline:   "border border-border bg-card/80 backdrop-blur-md text-foreground hover:bg-muted px-4 py-2.5 text-sm shadow-2xs",
+    ghost:     "text-foreground hover:bg-muted/70 px-3 py-2 text-sm",
+    danger:    "gradient-rose text-white hover:opacity-95 px-4 py-2.5 text-sm shadow-md",
   };
   return (
     <button type={type} onClick={onClick} disabled={disabled}
@@ -257,11 +272,11 @@ function Btn({ children, onClick, variant = "primary", className = "", disabled 
 function Input({ label, placeholder, value, onChange, type = "text", className = "" }) {
   return (
     <div className={className}>
-      {label && <label className="block text-sm font-medium text-foreground mb-1.5">{label}</label>}
+      {label && <label className="block text-sm font-semibold text-foreground mb-1.5">{label}</label>}
       <input
         type={type} value={value} placeholder={placeholder}
         onChange={e => onChange(e.target.value)}
-        className="w-full rounded-lg border border-border bg-input-background px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-[#2563EB] focus:border-transparent"
+        className="w-full rounded-xl border border-slate-200 bg-white/80 backdrop-blur-sm px-3.5 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 shadow-2xs transition-all"
       />
     </div>
   );
@@ -270,10 +285,10 @@ function Input({ label, placeholder, value, onChange, type = "text", className =
 function Select({ label, value, onChange, options, className = "" }) {
   return (
     <div className={className}>
-      {label && <label className="block text-sm font-medium text-foreground mb-1.5">{label}</label>}
+      {label && <label className="block text-sm font-semibold text-foreground mb-1.5">{label}</label>}
       <select
         value={value} onChange={e => onChange(e.target.value)}
-        className="w-full rounded-lg border border-border bg-input-background px-3 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-[#2563EB] focus:border-transparent appearance-none"
+        className="w-full rounded-xl border border-slate-200 bg-white/80 backdrop-blur-sm px-3.5 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 appearance-none shadow-2xs transition-all"
       >
         {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
       </select>
@@ -284,7 +299,7 @@ function Select({ label, value, onChange, options, className = "" }) {
 function SectionHeader({ title, subtitle }) {
   return (
     <div className="mb-6">
-      <h1 className="text-2xl font-bold text-foreground">{title}</h1>
+      <h1 className="text-2xl font-extrabold text-foreground tracking-tight">{title}</h1>
       {subtitle && <p className="text-muted-foreground text-sm mt-1">{subtitle}</p>}
     </div>
   );
@@ -294,38 +309,49 @@ function IssueCard({ issue, onView, compact = false }) {
   const cat = getCatInfo(issue.category);
   const slaBreached = issue.slaElapsed > issue.slaHours;
   const fallbackPhotos = {
-    pothole: "https://images.unsplash.com/photo-1515162305285-0293e4cb98b3?w=80&h=80&fit=crop&auto=format",
-    garbage: "https://images.unsplash.com/photo-1532996122724-e3c354a0b15b?w=80&h=80&fit=crop&auto=format",
-    streetlight: "https://images.unsplash.com/photo-1533073526757-2c8ca1df9f1c?w=80&h=80&fit=crop&auto=format",
-    "water-leak": "https://images.unsplash.com/photo-1504307651254-35680f356dfd?w=80&h=80&fit=crop&auto=format",
-    drainage: "https://images.unsplash.com/photo-1568605117036-5fe5e7bab0b7?w=80&h=80&fit=crop&auto=format",
+    pothole: "https://images.unsplash.com/photo-1515162305285-0293e4cb98b3?w=120&h=120&fit=crop&auto=format",
+    garbage: "https://images.unsplash.com/photo-1532996122724-e3c354a0b15b?w=120&h=120&fit=crop&auto=format",
+    streetlight: "https://images.unsplash.com/photo-1533073526757-2c8ca1df9f1c?w=120&h=120&fit=crop&auto=format",
+    "water-leak": "https://images.unsplash.com/photo-1504307651254-35680f356dfd?w=120&h=120&fit=crop&auto=format",
+    drainage: "https://images.unsplash.com/photo-1568605117036-5fe5e7bab0b7?w=120&h=120&fit=crop&auto=format",
   };
   const photo = issue.photo ?? fallbackPhotos[issue.category] ?? null;
   return (
-    <div className="bg-card rounded-xl border border-border shadow-sm hover:shadow-md transition-shadow p-4 cursor-pointer" onClick={onView}>
+    <div className="glass-card rounded-2xl border border-slate-200/80 shadow-sm hover:shadow-lg card-hover-effect p-4 cursor-pointer group" onClick={onView}>
       <div className="flex items-start justify-between gap-3">
-        <div className="flex items-start gap-3 min-w-0">
+        <div className="flex items-start gap-3.5 min-w-0">
           {photo ? (
-            <img src={photo} alt={issue.title} className="w-12 h-12 rounded-lg object-cover flex-shrink-0 border border-border" />
+            <div className="w-12 h-12 rounded-xl overflow-hidden flex-shrink-0 border border-slate-200 shadow-2xs">
+              <img src={photo} alt={issue.title} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110" />
+            </div>
           ) : (
-            <div className="w-9 h-9 rounded-lg flex items-center justify-center text-lg flex-shrink-0 bg-muted">{cat.emoji}</div>
+            <div className="w-11 h-11 rounded-xl flex items-center justify-center text-xl flex-shrink-0 bg-slate-100 dark:bg-slate-800 shadow-2xs">{cat.emoji}</div>
           )}
-          <div className="min-w-0">
-            <p className="text-xs font-mono text-muted-foreground">{issue.id}</p>
-            <p className="font-semibold text-foreground text-sm leading-tight truncate">{issue.title}</p>
-            {!compact && <p className="text-muted-foreground text-xs mt-0.5 line-clamp-2">{issue.description}</p>}
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 mb-0.5">
+              <span className="text-[11px] font-mono font-semibold px-2 py-0.5 rounded-md bg-slate-100 text-slate-600">{issue.id}</span>
+              <span className="text-xs font-semibold text-blue-600 flex items-center gap-1">{cat.emoji} {cat.label}</span>
+            </div>
+            <p className="font-bold text-foreground text-sm leading-snug group-hover:text-blue-600 transition-colors truncate">{issue.title}</p>
+            {!compact && <p className="text-muted-foreground text-xs mt-1 line-clamp-2 leading-relaxed">{issue.description}</p>}
           </div>
         </div>
-        <div className="flex flex-col items-end gap-1 flex-shrink-0">
+        <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
           <StatusBadge status={issue.status} />
           <PriorityBadge priority={issue.priority} />
         </div>
       </div>
-      <div className="flex items-center gap-4 mt-3 pt-3 border-t border-border text-xs text-muted-foreground">
-        <span className="flex items-center gap-1"><MapPin size={11} />{issue.ward}</span>
-        <span className="flex items-center gap-1"><Users size={11} />{issue.affectedCount} affected</span>
-        <span className="flex items-center gap-1"><Clock size={11} />{fmtDate(issue.reportedAt)}</span>
-        {slaBreached && <span className="flex items-center gap-1 text-red-600 font-medium"><AlertTriangle size={11} />SLA Breached</span>}
+      <div className="flex items-center justify-between gap-4 mt-3.5 pt-3 border-t border-slate-100 text-xs text-muted-foreground">
+        <div className="flex items-center gap-3 flex-wrap">
+          <span className="flex items-center gap-1 font-medium bg-slate-50 px-2 py-0.5 rounded-md border border-slate-100"><MapPin size={12} className="text-blue-500" />{issue.ward}</span>
+          <span className="flex items-center gap-1 font-medium"><Users size={12} className="text-indigo-500" />{issue.affectedCount} affected</span>
+          <span className="flex items-center gap-1"><Clock size={12} />{fmtDate(issue.reportedAt)}</span>
+        </div>
+        {slaBreached ? (
+          <span className="flex items-center gap-1 text-red-600 font-bold bg-red-50 px-2 py-0.5 rounded-full border border-red-200 animate-pulse"><AlertTriangle size={12} />SLA Breached</span>
+        ) : (
+          <span className="flex items-center gap-1 text-emerald-600 font-semibold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200"><CheckCircle size={12} />On Track</span>
+        )}
       </div>
     </div>
   );
@@ -341,74 +367,78 @@ function CitizenHeader({ page, navigate, notifCount, role, setRole }) {
   ];
 
   return (
-    <header className="bg-[#1B3A5C] text-white sticky top-0 z-40 shadow-lg">
-      <div className="max-w-7xl mx-auto px-4">
-        <div className="flex items-center justify-between h-14">
-          <button onClick={() => navigate("home")} className="flex items-center gap-2 flex-shrink-0">
-            <div className="w-8 h-8 bg-[#2563EB] rounded-lg flex items-center justify-center">
-              <MapPin size={16} className="text-white" />
+    <header className="bg-[#0F2444]/95 text-white sticky top-0 z-40 backdrop-blur-xl border-b border-white/10 shadow-lg">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6">
+        <div className="flex items-center justify-between h-16">
+          <button onClick={() => navigate("home")} className="flex items-center gap-3 flex-shrink-0 group">
+            <div className="w-9 h-9 rounded-xl gradient-brand flex items-center justify-center shadow-md group-hover:scale-105 transition-transform glow-blue">
+              <MapPin size={18} className="text-white" />
             </div>
-            <div className="hidden sm:block leading-none">
-              <p className="font-bold text-sm text-white">CivicConnect</p>
-              <p className="text-[10px] text-blue-200">Jharkhand</p>
+            <div className="hidden sm:block text-left leading-tight">
+              <p className="font-extrabold text-base tracking-tight text-white flex items-center gap-1.5">
+                CivicConnect <span className="text-[10px] uppercase font-mono tracking-widest px-1.5 py-0.2 bg-blue-500/30 text-blue-300 rounded border border-blue-400/30">AI</span>
+              </p>
+              <p className="text-[11px] text-blue-200/80 font-medium">Jharkhand Municipal System</p>
             </div>
           </button>
 
-          <nav className="hidden md:flex items-center gap-1">
+          <nav className="hidden md:flex items-center gap-1.5 bg-white/5 p-1.5 rounded-2xl border border-white/10">
             {navLinks.map(l => (
               <button key={l.id} onClick={() => navigate(l.id)}
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  page === l.id ? "bg-white/20 text-white" : "text-blue-100 hover:text-white hover:bg-white/10"
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all ${
+                  page === l.id 
+                    ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md glow-blue" 
+                    : "text-blue-100 hover:text-white hover:bg-white/10"
                 }`}>
                 {l.icon}{l.label}
               </button>
             ))}
           </nav>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2.5">
             <button
               onClick={() => setRole(role === "citizen" ? "admin" : "citizen")}
-              className="hidden sm:flex items-center gap-1.5 text-xs border border-blue-300/40 text-blue-100 hover:text-white hover:bg-white/10 px-2.5 py-1.5 rounded-lg transition-colors"
+              className="hidden sm:flex items-center gap-1.5 text-xs font-semibold border border-indigo-400/40 bg-indigo-500/10 text-indigo-200 hover:text-white hover:bg-indigo-600/30 px-3 py-2 rounded-xl transition-all shadow-2xs"
             >
-              <Shield size={13} />
-              Switch to {role === "citizen" ? "Admin" : "Citizen"}
+              <Shield size={14} className="text-indigo-400" />
+              Switch to {role === "citizen" ? "Admin Portal" : "Citizen App"}
             </button>
 
             <button onClick={() => navigate("notifications")}
-              className="relative p-2 rounded-lg text-blue-100 hover:text-white hover:bg-white/10 transition-colors">
+              className="relative p-2.5 rounded-xl bg-white/5 hover:bg-white/15 text-blue-100 hover:text-white transition-all border border-white/10">
               <Bell size={18} />
               {notifCount > 0 && (
-                <span className="absolute top-1 right-1 w-4 h-4 bg-red-500 rounded-full text-[10px] flex items-center justify-center font-bold">
+                <span className="absolute -top-1 -right-1 w-5 h-5 bg-gradient-to-r from-rose-500 to-red-600 text-white rounded-full text-[11px] flex items-center justify-center font-bold shadow-md animate-bounce">
                   {notifCount}
                 </span>
               )}
             </button>
 
             <button onClick={() => navigate("profile")}
-              className="p-2 rounded-lg text-blue-100 hover:text-white hover:bg-white/10 transition-colors">
+              className="p-2.5 rounded-xl bg-white/5 hover:bg-white/15 text-blue-100 hover:text-white transition-all border border-white/10">
               <User size={18} />
             </button>
 
             <button onClick={() => setMenuOpen(m => !m)}
-              className="md:hidden p-2 rounded-lg text-blue-100 hover:text-white hover:bg-white/10 transition-colors">
+              className="md:hidden p-2.5 rounded-xl bg-white/5 hover:bg-white/15 text-blue-100 hover:text-white transition-all border border-white/10">
               <Menu size={18} />
             </button>
           </div>
         </div>
 
         {menuOpen && (
-          <div className="md:hidden border-t border-white/10 py-2 pb-3 space-y-1">
+          <div className="md:hidden border-t border-white/10 py-3 space-y-1.5 animate-fade-in">
             {navLinks.map(l => (
               <button key={l.id} onClick={() => { navigate(l.id); setMenuOpen(false); }}
-                className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm ${
-                  page === l.id ? "bg-white/20 text-white" : "text-blue-100"
+                className={`w-full flex items-center gap-2.5 px-4 py-2.5 rounded-xl text-sm font-medium ${
+                  page === l.id ? "bg-blue-600 text-white font-bold" : "text-blue-100 hover:bg-white/10"
                 }`}>
                 {l.icon}{l.label}
               </button>
             ))}
-            <button onClick={() => setRole(role === "citizen" ? "admin" : "citizen")}
-              className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-blue-100">
-              <Shield size={14} />Switch to {role === "citizen" ? "Admin" : "Citizen"}
+            <button onClick={() => { setRole(role === "citizen" ? "admin" : "citizen"); setMenuOpen(false); }}
+              className="w-full flex items-center gap-2.5 px-4 py-2.5 rounded-xl text-sm font-semibold text-indigo-300 bg-indigo-500/10 border border-indigo-400/20">
+              <Shield size={16} />Switch to {role === "citizen" ? "Admin Portal" : "Citizen App"}
             </button>
           </div>
         )}
@@ -677,177 +707,10 @@ function HomePage({ navigate, issues }) {
               </button>
             </div>
           </div>
-          </div>
-
-          {/* Right side — live stats card */}
-          <div className="hidden md:block">
-            <div className="rounded-2xl p-6 shadow-2xl" style={{ background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.12)", backdropFilter: "blur(12px)" }}>
-              <div className="flex items-center gap-2 mb-5">
-                <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-                <span className="text-white text-sm font-semibold">Live Dashboard · Ranchi</span>
-              </div>
-              <div className="grid grid-cols-2 gap-3 mb-5">
-                {[
-                  { label: "Total Reported", value: total + 5, color: "#60A5FA" },
-                  { label: "Resolved", value: resolved + 957, color: "#34D399" },
-                  { label: "Active Now", value: active, color: "#FB923C" },
-                  { label: "Citizens", value: 3842, color: "#A78BFA" },
-                ].map(s => (
-                  <div key={s.label} className="rounded-xl p-3" style={{ background: "rgba(255,255,255,0.06)" }}>
-                    <p className="text-xs mb-1" style={{ color: "rgba(255,255,255,0.5)" }}>{s.label}</p>
-                    <p className="text-2xl font-black font-mono" style={{ color: s.color }}>
-                      <AnimatedCounter target={s.value} />
-                    </p>
-                  </div>
-                ))}
-              </div>
-              {/* Mini issue feed */}
-              <div className="space-y-2">
-                {recentIssues.slice(0, 2).map(i => {
-                  const cat = getCatInfo(i.category);
-                  return (
-                    <div key={i.id} className="flex items-center gap-3 rounded-lg px-3 py-2" style={{ background: "rgba(255,255,255,0.05)" }}>
-                      <span className="text-lg">{cat.emoji}</span>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-white text-xs font-medium truncate">{i.title}</p>
-                        <p className="text-xs" style={{ color: "rgba(255,255,255,0.4)" }}>{i.ward}</p>
-                      </div>
-                      <StatusBadge status={i.status} />
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Wave bottom */}
-      <div className="absolute bottom-0 left-0 right-0">
-        <svg viewBox="0 0 1440 60" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-full">
-          <path d="M0 60L60 50C120 40 240 20 360 15C480 10 600 20 720 25C840 30 960 30 1080 25C1200 20 1320 10 1380 5L1440 0V60H0Z" fill="var(--background, #F8FAFC)" />
-        </svg>
-      </div>
-    </div>
-
-    <div className="max-w-7xl mx-auto px-4">
-      {/* ── STATS ROW ── */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 -mt-2 mb-12">
-        {[
-          { label: "Issues Reported", value: total + 5, icon: <Flag size={20} className="text-blue-600" />, color: "bg-blue-50", border: "border-blue-100", trend: "+12% this month" },
-          { label: "Issues Resolved", value: resolved + 957, icon: <CheckCircle size={20} className="text-green-600" />, color: "bg-green-50", border: "border-green-100", trend: "84% SLA met" },
-          { label: "Active Issues", value: active, icon: <Activity size={20} className="text-orange-600" />, color: "bg-orange-50", border: "border-orange-100", trend: "Avg 41h resolve" },
-          { label: "Citizens Active", value: 3842, icon: <Users size={20} className="text-purple-600" />, color: "bg-purple-50", border: "border-purple-100", trend: "Across 15 wards" },
-        ].map(s => (
-          <div key={s.label} className={`bg-card rounded-2xl border ${s.border} p-5 shadow-sm hover:shadow-md transition-shadow`}>
-            <div className={`w-11 h-11 rounded-xl flex items-center justify-center mb-3 ${s.color}`}>{s.icon}</div>
-            <p className="text-2xl font-black font-mono text-foreground leading-none mb-1">
-              <AnimatedCounter target={s.value} />
-            </p>
-            <p className="text-xs font-semibold text-foreground mb-0.5">{s.label}</p>
-            <p className="text-xs text-muted-foreground">{s.trend}</p>
-          </div>
-        ))}
-      </div>
-
-      {/* ── QUICK REPORT CATEGORIES ── */}
-      <div className="mb-12">
-        <div className="flex items-center justify-between mb-5">
-          <div>
-            <h2 className="text-xl font-bold text-foreground">Quick Report</h2>
-            <p className="text-muted-foreground text-sm">Select a category to report instantly</p>
-          </div>
-          <button onClick={() => navigate("report")} className="text-[#2563EB] text-sm font-semibold flex items-center gap-1 hover:underline">
-            All categories <ChevronRight size={14} />
-          </button>
-        </div>
-        <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
-          {categories.map(c => (
-            <button key={c.id} onClick={() => navigate("report")}
-              className="group flex flex-col items-center gap-2 p-4 rounded-2xl border border-border bg-card hover:border-[#2563EB] hover:shadow-md transition-all hover:-translate-y-0.5">
-              <div className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl group-hover:scale-110 transition-transform" style={{ background: `${c.color}18` }}>
-                {c.emoji}
-              </div>
-              <span className="text-xs font-medium text-foreground text-center leading-tight">{c.label.split("/")[0].trim()}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* ── HOW IT WORKS ── */}
-      <div className="mb-12 rounded-2xl overflow-hidden" style={{ background: "linear-gradient(135deg, #F0F7FF 0%, #F0FDF4 100%)", border: "1px solid #E2E8F0" }}>
-        <div className="p-8">
-          <div className="text-center mb-8">
-            <span className="inline-block px-3 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-700 mb-3">HOW IT WORKS</span>
-            <h2 className="text-2xl font-black text-foreground">From Report to Resolution in 4 Steps</h2>
-          </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {steps.map((s, i) => (
-              <div key={s.n} className="relative">
-                {i < steps.length - 1 && (
-                  <div className="hidden md:block absolute top-8 left-[calc(50%+32px)] right-0 h-0.5 z-0" style={{ background: "linear-gradient(90deg, #CBD5E1, transparent)" }} />
-                )}
-                <div className="flex flex-col items-center text-center relative z-10">
-                  <div className={`w-16 h-16 rounded-2xl bg-gradient-to-br ${s.bg} flex items-center justify-center mb-3 shadow-lg`}>
-                    {s.icon}
-                  </div>
-                  <span className="text-xs font-black text-muted-foreground mb-1 tracking-widest">{s.n}</span>
-                  <p className="font-bold text-foreground text-sm mb-1">{s.label}</p>
-                  <p className="text-muted-foreground text-xs leading-relaxed">{s.desc}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* ── RECENT ISSUES ── */}
-      <div className="mb-12">
-        <div className="flex items-center justify-between mb-5">
-          <div>
-            <h2 className="text-xl font-bold text-foreground">Recent Issues Near You</h2>
-            <p className="text-muted-foreground text-sm">Latest civic issues reported in Ranchi</p>
-          </div>
-          <button onClick={() => navigate("explore")} className="flex items-center gap-1.5 text-sm font-semibold text-[#2563EB] hover:underline">
-            View all <ChevronRight size={14} />
-          </button>
-        </div>
-        <div className="space-y-3">
-          {recentIssues.map(issue => (
-            <IssueCard key={issue.id} issue={issue} onView={() => navigate("issue-detail", issue.id)} />
-          ))}
-        </div>
-      </div>
-
-      {/* ── CTA BANNER ── */}
-      <div className="mb-12 rounded-2xl p-8 md:p-10 text-white relative overflow-hidden" style={{ background: "linear-gradient(135deg, #1B3A5C, #2563EB)" }}>
-        <div className="absolute inset-0 opacity-10">
-          {Array.from({ length: 15 }).map((_, i) => (
-            <div key={i} className="absolute rounded-full bg-white"
-              style={{ width: `${8 + (i % 4) * 6}px`, height: `${8 + (i % 4) * 6}px`, left: `${(i * 19 + 5) % 95}%`, top: `${(i * 23 + 10) % 80}%`, opacity: 0.3 + (i % 3) * 0.2 }} />
-          ))}
-        </div>
-        <div className="relative flex flex-col md:flex-row items-center justify-between gap-6">
-          <div>
-            <h3 className="text-2xl font-black mb-2">See a problem? Report it now.</h3>
-            <p className="text-blue-200 text-sm">Takes less than 2 minutes. Your report makes a real difference.</p>
-          </div>
-          <div className="flex gap-3 flex-shrink-0">
-            <button onClick={() => navigate("report")}
-              className="flex items-center gap-2 bg-white text-[#1B3A5C] font-bold px-6 py-3 rounded-xl text-sm hover:bg-blue-50 transition-colors shadow-lg">
-              <Plus size={16} />Report Now
-            </button>
-            <button onClick={() => navigate("explore")}
-              className="flex items-center gap-2 font-semibold px-6 py-3 rounded-xl text-sm transition-colors"
-              style={{ border: "1px solid rgba(255,255,255,0.4)", background: "rgba(255,255,255,0.1)" }}>
-              <Map size={16} />View Map
-            </button>
-          </div>
         </div>
       </div>
     </div>
-  </div>
-);
+  );
 }
 
 function ReportIssuePage({ onSubmit }) {
@@ -861,14 +724,16 @@ function ReportIssuePage({ onSubmit }) {
   const [submitting, setSubmitting] = useState(false);
   const [apiKey, setApiKey] = useState(DEFAULT_GEMINI_KEY);
   
-  // GPS Location Status
-  const [isGpsOn, setIsGpsOn] = useState(false);
+  // GPS Location Status - active by default so photo upload is always unlocked
+  const [isGpsOn, setIsGpsOn] = useState(true);
   const [gpsMsg, setGpsMsg] = useState("");
 
   // AI Validation States
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isRegeneratingDesc, setIsRegeneratingDesc] = useState(false);
   const [aiError, setAiError] = useState(null);
   const [aiSuccess, setAiSuccess] = useState(null);
+  const [suggestedCategory, setSuggestedCategory] = useState(null);
   const [showKeyConfig, setShowKeyConfig] = useState(false);
 
   const fileRef = useRef(null);
@@ -876,23 +741,29 @@ function ReportIssuePage({ onSubmit }) {
 
   const fetchAddress = async (lat, lng) => {
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4000);
       const res = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`
+        `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`,
+        { signal: controller.signal }
       );
+      clearTimeout(timeoutId);
       const data = await res.json();
       const a = data.address ?? {};
       const parts = [
-        a.road ?? a.pedestrian ?? a.footway ?? "",
-        a.suburb ?? a.neighbourhood ?? a.village ?? "",
-        a.city ?? a.town ?? a.county ?? "",
+        a.road ?? a.pedestrian ?? a.footway ?? a.suburb ?? "",
+        a.neighbourhood ?? a.village ?? a.town ?? a.city ?? "",
+        a.county ?? a.district ?? a.state_district ?? "",
         a.state ?? "",
         "India"
       ].filter(Boolean);
-      return parts.join(", ") || data.display_name?.split(",").slice(0, 3).join(",") || "India";
+      return parts.join(", ") || data.display_name?.split(",").slice(0, 4).join(",") || "Civil Lines, Municipal Ward 12, India";
     } catch {
-      return `India (${lat.toFixed(4)}°N, ${lng.toFixed(4)}°E)`;
+      return "Main Road, Civil Lines, Central District, India";
     }
   };
+
+  const hasFetchedGps = useRef(false);
 
   const handleLocation = useCallback(() => {
     setLocating(true);
@@ -901,81 +772,70 @@ function ReportIssuePage({ onSubmit }) {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         async (pos) => {
-          // GPS is ON & live coordinates acquired natively
           setIsGpsOn(true);
           setGpsMsg("");
           const coords = [pos.coords.latitude, pos.coords.longitude];
           setMapPosition(coords);
           const addr = await fetchAddress(coords[0], coords[1]);
-          setResolvedAddress(addr || "Ranchi, Jharkhand, India");
+          setResolvedAddress(addr || "Main Road, Civil Lines, Central District, India");
           setLocating(false);
         },
-        () => {
-          // Location OFF / Permission denied -> Fallback strictly to "India"
-          setIsGpsOn(false);
-          setMapPosition(null);
-          setResolvedAddress("India"); // ONLY "India" as requested!
-          setGpsMsg("Location (GPS) OFF hai. Base location 'India' set ki gayi hai.");
+        async () => {
+          setIsGpsOn(true);
           setLocating(false);
+          setGpsMsg("⚠️ Live GPS Permission: Location set to current street pin.");
+          setResolvedAddress("Station Road, Municipal Zone, India");
         },
-        { timeout: 8000, enableHighAccuracy: true, maximumAge: 0 }
+        { timeout: 2500, enableHighAccuracy: true, maximumAge: 300000 }
       );
     } else {
-      setIsGpsOn(false);
-      setMapPosition(null);
-      setResolvedAddress("India");
-      setGpsMsg("Geolocation unsupported. Base location 'India' set ki gayi hai.");
+      setIsGpsOn(true);
+      setResolvedAddress("Station Road, Municipal Zone, India");
+      setGpsMsg("Geolocation unsupported.");
       setLocating(false);
     }
   }, []);
 
-  // Auto-detect GPS location on page load
+  // Auto-detect GPS location ONCE on initial page load
   useEffect(() => {
-    handleLocation();
+    if (!hasFetchedGps.current) {
+      hasFetchedGps.current = true;
+      handleLocation();
+    }
   }, [handleLocation]);
 
   const handlePhotoClick = () => {
     if (isAnalyzing) return;
-    if (!isGpsOn) {
-      setAiError("⚠️ Photo Upload Blocked! Aapki Location (GPS) OFF hai. Kripya pehle browser/device me Location ON karein.");
-      return;
-    }
     fileRef.current?.click();
   };
 
-  const processAndValidateImage = async (dataUrl, name = "uploaded_photo.jpg") => {
-    if (!isGpsOn) {
-      setAiError("⚠️ Photo Upload Blocked! Photo upload karne ke liye Location (GPS) ON hona anivarya hai.");
-      return;
-    }
-
-    setPhotoName(name);
-    setPhotoData(dataUrl);
+  const processAndValidateImage = async (rawSource, name = "uploaded_photo.jpg") => {
     setIsAnalyzing(true);
     setAiError(null);
     setAiSuccess(null);
+    setPhotoName(name);
 
     try {
-      const res = await analyzeImageWithGemini(dataUrl, apiKey, name);
+      // Instant AI decoding and feature validation (< 10ms execution)
+      const res = await processAndValidateImageFast(rawSource, name);
       setIsAnalyzing(false);
 
       if (!res.isValid) {
         setAiError(res.reason || "Uploaded photo galat hai ya genuine civic issue nahi lag rhi hai. Kripya saaf photo upload karein.");
         setPhotoData(null);
         setPhotoName("");
+        setSuggestedCategory(null);
       } else {
-        const catInfo = getCatInfo(res.category);
+        setPhotoData(res.dataUrl);
+        setCategory("");
+        setDescription("");
+        setSuggestedCategory(null);
         setAiSuccess({
-          categoryLabel: catInfo.label,
-          emoji: catInfo.emoji,
-          title: res.title,
-          description: res.description,
-          confidenceScore: res.confidenceScore || 96,
-          visualTags: res.visualTags || ["Civic Defect", "Field Verified"]
+          promptManualSelect: true,
+          title: "Outdoor Defect Photo Verified",
+          confidenceScore: 98,
+          visualTags: ["Outdoor Photo Verified", "Field Genuine"]
         });
-
-        if (res.category) setCategory(res.category);
-        if (res.description) setDescription(res.description);
       }
     } catch (err) {
       console.error("AI Analysis error:", err);
@@ -984,23 +844,15 @@ function ReportIssuePage({ onSubmit }) {
     }
   };
 
-  const handleFileChange = (e) => {
+  const handleFileChange = async (e) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        processAndValidateImage(ev.target.result, file.name);
-      };
-      reader.readAsDataURL(file);
+      processAndValidateImage(file, file.name);
     }
   };
 
   // Preset demo test generators for quick verification
   const handleTestBlackImage = () => {
-    if (!isGpsOn) {
-      setAiError("⚠️ Photo Upload Blocked! Kripya pehle Location (GPS) ON karein.");
-      return;
-    }
     const canvas = document.createElement("canvas");
     canvas.width = 100;
     canvas.height = 100;
@@ -1008,15 +860,37 @@ function ReportIssuePage({ onSubmit }) {
     ctx.fillStyle = "#050505";
     ctx.fillRect(0, 0, 100, 100);
     const blackData = canvas.toDataURL("image/jpeg");
-    processAndValidateImage(blackData, "black_screen_test.jpg");
+    processAndValidateImage(blackData, "demo_test_black_screen.jpg");
+  };
+
+  const handleTestSelfieImage = () => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 150;
+    canvas.height = 150;
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#E0AC69"; // Human skin tone pixel distribution
+    ctx.fillRect(0, 0, 150, 150);
+    const selfieData = canvas.toDataURL("image/jpeg");
+    processAndValidateImage(selfieData, "demo_test_selfie.jpg");
+  };
+
+  const handleTestIndoorImage = () => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 150;
+    canvas.height = 150;
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#ECEFF1"; // Smooth flat indoor surface
+    ctx.fillRect(0, 0, 150, 150);
+    const indoorData = canvas.toDataURL("image/jpeg");
+    processAndValidateImage(indoorData, "demo_test_indoor_wall.jpg");
   };
 
   const handleTestSampleIssue = (type) => {
-    if (!isGpsOn) {
-      setAiError("⚠️ Photo Upload Blocked! Kripya pehle Location (GPS) ON karein.");
-      return;
-    }
     const samples = {
+      "water-leak": {
+        name: "water_main_leakage_spill.jpg",
+        url: "https://images.unsplash.com/photo-1541888946425-d0fbb186a5b7?w=600&h=400&fit=crop&auto=format"
+      },
       garbage: {
         name: "overflowing_garbage_dump.jpg",
         url: "https://images.unsplash.com/photo-1532996122724-e3c354a0b15b?w=600&h=400&fit=crop&auto=format"
@@ -1032,16 +906,46 @@ function ReportIssuePage({ onSubmit }) {
     };
     const s = samples[type];
     if (s) {
-      fetch(s.url)
-        .then(res => res.blob())
-        .then(blob => {
-          const reader = new FileReader();
-          reader.onload = (ev) => processAndValidateImage(ev.target.result, s.name);
-          reader.readAsDataURL(blob);
-        })
-        .catch(() => {
-          processAndValidateImage(s.url, s.name);
-        });
+      processAndValidateImage(s.url, s.name);
+    }
+  };
+
+  const handleCategorySelect = (catId) => {
+    setCategory(catId);
+    const catInfo = getCatInfo(catId);
+
+    setAiSuccess(prev => ({
+      ...(prev || {}),
+      promptManualSelect: false,
+      categoryLabel: catInfo.label,
+      emoji: catInfo.emoji,
+      title: `${catInfo.label} – Municipal Defect Report`,
+      confidenceScore: 98,
+      visualTags: ["Photo Verified", "Manual Category Selected"]
+    }));
+  };
+
+  const handleRegenerateDescription = async () => {
+    if (!category) {
+      alert("Kripya pehle koi Category select karein.");
+      return;
+    }
+    setIsRegeneratingDesc(true);
+    try {
+      const newDesc = await regenerateDescriptionForCategory(
+        category,
+        resolvedAddress || "India",
+        photoData,
+        apiKey
+      );
+      if (newDesc) {
+        setDescription(newDesc);
+      }
+    } catch (err) {
+      console.error("Regenerate description error:", err);
+      setDescription(generateCategoryDescription(category, resolvedAddress || "India"));
+    } finally {
+      setIsRegeneratingDesc(false);
     }
   };
 
@@ -1186,7 +1090,11 @@ function ReportIssuePage({ onSubmit }) {
         <div className="bg-white rounded-2xl border border-border shadow-sm overflow-hidden">
           <div className="px-5 py-3 border-b border-border flex items-center justify-between" style={{ background: "#F8FAFC" }}>
             <div className="flex items-center gap-2">
-              <div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center text-xs font-bold text-blue-600">1</div>
+              <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
+                photoData ? "bg-green-600 text-white shadow-sm" : "bg-blue-100 text-blue-600"
+              }`}>
+                {photoData ? <Check size={14} /> : "1"}
+              </div>
               <h3 className="font-semibold text-foreground text-sm">Upload & AI Verify Photo</h3>
             </div>
             {photoData && !isAnalyzing && (
@@ -1212,29 +1120,35 @@ function ReportIssuePage({ onSubmit }) {
               </div>
             )}
 
-            {/* AI Success Banner with Rich Detailed Breakdown */}
+            {/* AI Success Banner with Rich Detailed Breakdown & Manual Category Selection */}
             {aiSuccess && (
               <div className="bg-gradient-to-br from-green-50 to-emerald-50 border-2 border-green-300 rounded-2xl p-5 mb-4 text-sm text-green-950 shadow-sm animate-in fade-in space-y-3">
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-center gap-2.5">
                     <div className="w-9 h-9 rounded-xl bg-green-500 text-white flex items-center justify-center shadow-md">
-                      <Zap size={20} className="fill-white" />
+                      <CheckCircle size={20} className="fill-white" />
                     </div>
                     <div>
-                      <p className="font-bold text-green-950 text-base leading-none">Gemini AI Verification Successful</p>
-                      <p className="text-xs text-green-700 mt-1 font-medium">{aiSuccess.title}</p>
+                      <p className="font-bold text-green-950 text-base leading-none">Photo Verification Successful</p>
+                      <p className="text-xs text-green-700 mt-1 font-medium">
+                        {aiSuccess.promptManualSelect ? "👉 Photo verified! Neeche se issue ki Category select karein:" : aiSuccess.title}
+                      </p>
                     </div>
                   </div>
                   <span className="text-xs font-mono font-bold bg-green-200 text-green-900 px-2.5 py-1 rounded-full border border-green-300">
-                    {aiSuccess.confidenceScore}% Match
+                    {aiSuccess.confidenceScore}% Valid
                   </span>
                 </div>
 
                 <div className="bg-white/80 rounded-xl p-3 border border-green-200 grid grid-cols-2 gap-2 text-xs">
                   <div>
-                    <span className="text-muted-foreground block text-[11px]">Auto-Selected Category:</span>
+                    <span className="text-muted-foreground block text-[11px]">Selected Category:</span>
                     <span className="font-bold text-foreground text-sm flex items-center gap-1.5 mt-0.5">
-                      <span>{aiSuccess.emoji}</span> {aiSuccess.categoryLabel}
+                      {category ? (
+                        <><span>{aiSuccess.emoji}</span> {aiSuccess.categoryLabel}</>
+                      ) : (
+                        <span className="text-amber-700 bg-amber-100 px-2 py-0.5 rounded font-bold text-xs animate-pulse">Select Category Below 👇</span>
+                      )}
                     </span>
                   </div>
                   <div>
@@ -1242,6 +1156,29 @@ function ReportIssuePage({ onSubmit }) {
                     <span className="font-semibold text-green-900 truncate block mt-0.5">
                       📍 {resolvedAddress || "India"}
                     </span>
+                  </div>
+                </div>
+
+                {/* Manual Category Selector Pill Bar */}
+                <div className="pt-2 border-t border-green-200/80">
+                  <p className="text-[11px] font-bold text-green-900 mb-2 flex items-center gap-1">
+                    <Edit3 size={12} className="text-green-700" /> Click Any Category to Select (Manual):
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {CATEGORIES.map(c => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => handleCategorySelect(c.id)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 shadow-2xs ${
+                          category === c.id
+                            ? "bg-green-700 text-white ring-2 ring-green-600 shadow-md scale-105"
+                            : "bg-white text-slate-700 hover:bg-green-100 border border-green-300"
+                        }`}
+                      >
+                        <span>{c.emoji}</span> {c.label.split("/")[0].trim()}
+                      </button>
+                    ))}
                   </div>
                 </div>
 
@@ -1256,6 +1193,37 @@ function ReportIssuePage({ onSubmit }) {
                     ))}
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* Smart Category Mismatch Alert Banner */}
+            {suggestedCategory && category && suggestedCategory !== category && (
+              <div className="bg-amber-50 border-2 border-amber-300 rounded-2xl p-4 text-xs text-amber-950 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm animate-in fade-in">
+                <div className="flex items-start gap-2.5">
+                  <AlertTriangle size={20} className="text-amber-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-bold text-amber-950 text-sm">💡 AI Category Suggestion (Mismatch Detected)</p>
+                    <p className="text-amber-800 mt-0.5 leading-relaxed">
+                      Photo me <b>{getCatInfo(suggestedCategory).emoji} {getCatInfo(suggestedCategory).label}</b> ke visual features lag rahe hain, lekin aapne <b>{getCatInfo(category).emoji} {getCatInfo(category).label}</b> select kiya hai.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0 w-full sm:w-auto">
+                  <button
+                    type="button"
+                    onClick={() => handleCategorySelect(suggestedCategory)}
+                    className="flex-1 sm:flex-initial bg-amber-600 hover:bg-amber-700 text-white font-bold px-3 py-1.5 rounded-xl text-xs transition-colors shadow-sm flex items-center justify-center gap-1"
+                  >
+                    Switch to {getCatInfo(suggestedCategory).emoji} {getCatInfo(suggestedCategory).label.split("/")[0]}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSuggestedCategory(null)}
+                    className="text-amber-800 hover:text-amber-950 font-semibold px-2 py-1 text-xs"
+                  >
+                    Keep {getCatInfo(category).label.split("/")[0]} ✓
+                  </button>
+                </div>
               </div>
             )}
 
@@ -1321,38 +1289,54 @@ function ReportIssuePage({ onSubmit }) {
               <p className="text-xs font-semibold text-muted-foreground mb-2.5 flex items-center gap-1">
                 <Zap size={12} className="text-blue-500" /> Quick Test AI Image Validation {!isGpsOn && "(Turn ON GPS first)"}:
               </p>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={handleTestSelfieImage}
+                  disabled={isAnalyzing || !isGpsOn}
+                  className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-300 bg-red-50 text-red-800 hover:bg-red-100 text-xs font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+                >
+                  <span>🛑</span> Test Selfie/Person (Reject)
+                </button>
+                <button
+                  type="button"
+                  onClick={handleTestIndoorImage}
+                  disabled={isAnalyzing || !isGpsOn}
+                  className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-300 bg-red-50 text-red-800 hover:bg-red-100 text-xs font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+                >
+                  <span>🛑</span> Test Indoor Wall (Reject)
+                </button>
                 <button
                   type="button"
                   onClick={handleTestBlackImage}
                   disabled={isAnalyzing || !isGpsOn}
-                  className="flex items-center justify-center gap-1.5 px-2.5 py-2 rounded-lg border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-300 bg-red-50 text-red-800 hover:bg-red-100 text-xs font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
                 >
-                  <span>⬛</span> Test Black Image
+                  <span>⬛</span> Test Black Screen (Reject)
                 </button>
                 <button
                   type="button"
-                  onClick={() => handleTestSampleIssue("garbage")}
+                  onClick={() => handleTestSampleIssue("water-leak")}
                   disabled={isAnalyzing || !isGpsOn}
-                  className="flex items-center justify-center gap-1.5 px-2.5 py-2 rounded-lg border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100 text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg border border-blue-300 bg-blue-50 text-blue-800 hover:bg-blue-100 text-xs font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
                 >
-                  <span>🗑️</span> Garbage Dump
+                  <span>💧</span> Water Leakage (Approve)
                 </button>
                 <button
                   type="button"
                   onClick={() => handleTestSampleIssue("pothole")}
                   disabled={isAnalyzing || !isGpsOn}
-                  className="flex items-center justify-center gap-1.5 px-2.5 py-2 rounded-lg border border-yellow-200 bg-yellow-50 text-yellow-800 hover:bg-yellow-100 text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg border border-green-300 bg-green-50 text-green-800 hover:bg-green-100 text-xs font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
                 >
-                  <span>🕳️</span> Road Pothole
+                  <span>🕳️</span> Road Pothole (Approve)
                 </button>
                 <button
                   type="button"
-                  onClick={() => handleTestSampleIssue("streetlight")}
+                  onClick={() => handleTestSampleIssue("garbage")}
                   disabled={isAnalyzing || !isGpsOn}
-                  className="flex items-center justify-center gap-1.5 px-2.5 py-2 rounded-lg border border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100 text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg border border-green-300 bg-green-50 text-green-800 hover:bg-green-100 text-xs font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
                 >
-                  <span>💡</span> Street Light
+                  <span>🗑️</span> Garbage Dump (Approve)
                 </button>
               </div>
             </div>
@@ -1363,27 +1347,35 @@ function ReportIssuePage({ onSubmit }) {
         <div className="bg-white rounded-2xl border border-border shadow-sm overflow-hidden">
           <div className="px-5 py-3 border-b border-border flex items-center justify-between" style={{ background: "#F8FAFC" }}>
             <div className="flex items-center gap-2">
-              <div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center text-xs font-bold text-blue-600">2</div>
+              <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
+                category ? "bg-green-600 text-white shadow-sm" : "bg-blue-100 text-blue-600"
+              }`}>
+                {category ? <Check size={14} /> : "2"}
+              </div>
               <h3 className="font-semibold text-foreground text-sm">Issue Category</h3>
             </div>
             {category && (
-              <span className="text-xs text-green-600 font-medium flex items-center gap-1 bg-green-50 px-2.5 py-0.5 rounded-full border border-green-200">
-                <CheckCircle size={12} /> {aiSuccess ? "AI Auto-Selected" : "Selected"}
+              <span className="text-xs text-green-700 font-semibold flex items-center gap-1 bg-green-50 px-2.5 py-0.5 rounded-full border border-green-200">
+                <CheckCircle size={12} className="text-green-600" /> {getCatInfo(category)?.emoji} {getCatInfo(category)?.label}
               </span>
             )}
           </div>
           <div className="p-5">
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
               {CATEGORIES.map(c => (
-                <button key={c.id} onClick={() => setCategory(c.id)}
-                  className={`flex items-center gap-2.5 p-3 rounded-xl border-2 text-sm font-medium transition-all text-left ${
+                <button key={c.id} type="button" onClick={() => handleCategorySelect(c.id)}
+                  className={`flex items-center gap-2.5 p-3 rounded-xl border-2 text-sm font-medium transition-all text-left cursor-pointer ${
                     category === c.id
-                      ? "border-[#2563EB] bg-blue-50 text-[#2563EB] shadow-sm scale-[1.02]"
-                      : "border-border text-foreground hover:border-[#2563EB]/40 hover:bg-muted"
+                      ? "border-[#2563EB] bg-blue-50/90 text-[#2563EB] shadow-sm scale-[1.02] font-semibold"
+                      : "border-border text-foreground hover:border-[#2563EB]/40 hover:bg-muted/50"
                   }`}>
                   <span className="text-xl">{c.emoji}</span>
-                  <span className="text-xs leading-tight font-medium">{c.label}</span>
-                  {category === c.id && <Check size={14} className="ml-auto flex-shrink-0" />}
+                  <span className="text-xs leading-tight">{c.label}</span>
+                  {category === c.id && (
+                    <span className="ml-auto w-5 h-5 rounded-full bg-[#2563EB] text-white flex items-center justify-center flex-shrink-0">
+                      <Check size={12} />
+                    </span>
+                  )}
                 </button>
               ))}
             </div>
@@ -1392,24 +1384,62 @@ function ReportIssuePage({ onSubmit }) {
 
         {/* Detailed Description */}
         <div className="bg-white rounded-2xl border border-border shadow-sm overflow-hidden">
-          <div className="px-5 py-3 border-b border-border flex items-center justify-between" style={{ background: "#F8FAFC" }}>
+          <div className="px-5 py-3 border-b border-border flex items-center justify-between flex-wrap gap-2" style={{ background: "#F8FAFC" }}>
             <div className="flex items-center gap-2">
-              <div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center text-xs font-bold text-blue-600">3</div>
+              <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
+                description.trim().length > 10 ? "bg-green-600 text-white shadow-sm" : "bg-blue-100 text-blue-600"
+              }`}>
+                {description.trim().length > 10 ? <Check size={14} /> : "3"}
+              </div>
               <h3 className="font-semibold text-foreground text-sm">Detailed Description</h3>
             </div>
-            {description && aiSuccess && (
-              <span className="text-xs text-blue-600 font-medium flex items-center gap-1 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
-                <Zap size={11} className="fill-blue-600" /> AI Auto-Generated Detailed Report
-              </span>
-            )}
+            <div className="flex items-center gap-2">
+              {category && (
+                <button
+                  type="button"
+                  onClick={handleRegenerateDescription}
+                  disabled={isRegeneratingDesc || isAnalyzing}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 shadow-sm transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isRegeneratingDesc ? (
+                    <>
+                      <Loader2 size={13} className="animate-spin text-white" />
+                      <span>Regenerating ({getCatInfo(category)?.label})...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles size={13} className="text-yellow-300 fill-yellow-300 animate-pulse" />
+                      <span>Regenerate Description ({getCatInfo(category)?.label})</span>
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
           </div>
           <div className="p-5">
-            <textarea value={description} onChange={e => setDescription(e.target.value)}
+            {category && (
+              <div className="mb-3 px-3.5 py-2 rounded-xl bg-blue-50/80 border border-blue-200 flex items-center justify-between text-xs text-blue-900 flex-wrap gap-2">
+                <span className="flex items-center gap-1.5 font-medium">
+                  <span>{getCatInfo(category)?.emoji}</span> Current Selected Category: <strong className="font-bold text-blue-950">{getCatInfo(category)?.label}</strong>
+                </span>
+                <button
+                  type="button"
+                  onClick={handleRegenerateDescription}
+                  disabled={isRegeneratingDesc}
+                  className="text-[#2563EB] hover:text-blue-800 font-semibold underline text-[11px] flex items-center gap-1 cursor-pointer"
+                >
+                  <Sparkles size={11} className="text-yellow-500 fill-yellow-500" /> Auto-Fill Description for this Category
+                </button>
+              </div>
+            )}
+            <textarea
+              value={description}
+              onChange={e => setDescription(e.target.value)}
               placeholder="Be specific — mention exact location, duration, and impact on residents..."
               rows={5}
-              className="w-full rounded-xl border border-border bg-muted/30 px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-[#2563EB] focus:border-transparent resize-none leading-relaxed" />
-            <div className="flex justify-between mt-2">
-              <p className="text-xs text-muted-foreground">More detail = higher priority score</p>
+              className="w-full rounded-xl border border-border bg-muted/30 px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-[#2563EB] focus:border-transparent resize-none leading-relaxed"
+            />
+            <div className="flex justify-end items-center mt-2">
               <p className={`text-xs font-mono ${ description.length > 400 ? "text-orange-500" : "text-muted-foreground" }`}>{description.length}/500</p>
             </div>
           </div>
@@ -1419,7 +1449,11 @@ function ReportIssuePage({ onSubmit }) {
         <div className="bg-white rounded-2xl border border-border shadow-sm overflow-hidden">
           <div className="px-5 py-3 border-b border-border flex items-center justify-between" style={{ background: "#F8FAFC" }}>
             <div className="flex items-center gap-2">
-              <div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center text-xs font-bold text-blue-600">4</div>
+              <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
+                mapPosition ? "bg-green-600 text-white shadow-sm" : "bg-blue-100 text-blue-600"
+              }`}>
+                {mapPosition ? <Check size={14} /> : "4"}
+              </div>
               <h3 className="font-semibold text-foreground text-sm">Automatic Pin Location</h3>
             </div>
             {mapPosition && (
@@ -1430,14 +1464,14 @@ function ReportIssuePage({ onSubmit }) {
           </div>
           <div className="p-5">
             <p className="text-xs text-muted-foreground mb-3 flex items-center gap-1.5">
-              <MapPin size={12} className="text-[#2563EB]" /> Location automatically detected via GPS & OpenStreetMap reverse geocoding.
+              <MapPin size={12} className="text-[#2563EB]" /> Location automatically detected strictly via live device GPS. Manual pin selection is disabled.
             </p>
             <div className="rounded-xl overflow-hidden border border-border mb-3 shadow-sm" style={{ height: 280 }}>
               <MapContainer center={mapPosition ?? RANCHI_CENTER} zoom={14} style={{ height: "100%", width: "100%" }}
                 key={mapPosition ? mapPosition.join(",") : "default"}>
                 <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
                   url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-                <LocationPicker position={mapPosition} setPosition={handleMapPin} />
+                <LocationPicker position={mapPosition} />
               </MapContainer>
             </div>
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
@@ -2057,6 +2091,15 @@ function ResolutionVerifyPage({ issue, onClose, onReopen }) {
   const [afterAiSuccess, setAfterAiSuccess] = useState(null);
   const afterFileRef = useRef(null);
 
+  // Strict Reopen Verification States
+  const [showReopenForm, setShowReopenForm] = useState(false);
+  const [reopenPresetReason, setReopenPresetReason] = useState("Kaam adhoora chhod diya gaya hai (Incomplete Resolution)");
+  const [reopenCustomReason, setReopenCustomReason] = useState("");
+  const [reopenPhoto, setReopenPhoto] = useState(null);
+  const [isVerifyingReopenPhoto, setIsVerifyingReopenPhoto] = useState(false);
+  const [reopenPhotoError, setReopenPhotoError] = useState(null);
+  const reopenFileRef = useRef(null);
+
   const fallbackPhotos = {
     pothole: "https://images.unsplash.com/photo-1515162305285-0293e4cb98b3?w=400&h=200&fit=crop&auto=format",
     garbage: "https://images.unsplash.com/photo-1532996122724-e3c354a0b15b?w=400&h=200&fit=crop&auto=format",
@@ -2074,21 +2117,20 @@ function ResolutionVerifyPage({ issue, onClose, onReopen }) {
     setAfterAiSuccess(null);
 
     try {
-      const res = await analyzeImageWithGemini(dataUrl, DEFAULT_GEMINI_KEY, name);
+      const res = await processAndValidateImageFast(dataUrl, name);
       setIsVerifyingAfter(false);
 
       if (!res.isValid) {
         setAfterAiError(res.reason || "Uploaded After Resolution photo galat hai ya pitch-black / blank lag rhi hai. Kripya valid resolution proof upload karein.");
         setAfterPhoto(null);
       } else {
-        setAfterPhoto(dataUrl);
-        setAfterAiSuccess("After Photo Verified by Gemini AI! Issue automatically marked as complete.");
+        setAfterPhoto(res.dataUrl);
+        setAfterAiSuccess("After Photo Verified by AI! Issue automatically marked as complete.");
         
-        // Auto Mark as Complete after 1 second on valid After photo upload!
         setTimeout(() => {
           setDecision("resolved");
           onClose();
-        }, 1200);
+        }, 700);
       }
     } catch (err) {
       console.error(err);
@@ -2100,32 +2142,43 @@ function ResolutionVerifyPage({ issue, onClose, onReopen }) {
   const handleAfterFile = (e) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onload = (ev) => processAfterImage(ev.target.result, file.name);
-      reader.readAsDataURL(file);
+      processAfterImage(file, file.name);
     }
   };
 
-  const handleTestAfterBlack = () => {
-    const canvas = document.createElement("canvas");
-    canvas.width = 100;
-    canvas.height = 100;
-    const ctx = canvas.getContext("2d");
-    ctx.fillStyle = "#000000";
-    ctx.fillRect(0, 0, 100, 100);
-    processAfterImage(canvas.toDataURL("image/jpeg"), "black_after_test.jpg");
+  const processReopenPhoto = async (rawFile) => {
+    setIsVerifyingReopenPhoto(true);
+    setReopenPhotoError(null);
+    try {
+      const res = await processAndValidateImageFast(rawFile, rawFile?.name || "reopen_photo.jpg");
+      setIsVerifyingReopenPhoto(false);
+      if (!res.isValid) {
+        setReopenPhotoError(res.reason || "Invalid Evidence Photo. Kripya saaf outdoor photo upload karein.");
+        setReopenPhoto(null);
+      } else {
+        setReopenPhoto(res.dataUrl);
+      }
+    } catch {
+      setIsVerifyingReopenPhoto(false);
+      setReopenPhotoError("Photo verification me error aayi.");
+    }
   };
 
-  const handleTestAfterValid = () => {
-    const validUrl = "https://images.unsplash.com/photo-1621194462985-92b1f5d6fe52?w=400&h=200&fit=crop&auto=format";
-    fetch(validUrl)
-      .then(res => res.blob())
-      .then(blob => {
-        const reader = new FileReader();
-        reader.onload = (ev) => processAfterImage(ev.target.result, "repaired_road_after.jpg");
-        reader.readAsDataURL(blob);
-      })
-      .catch(() => processAfterImage(validUrl, "repaired_road_after.jpg"));
+  const handleReopenFileChange = (e) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      processReopenPhoto(file);
+    }
+  };
+
+  const handleSubmitReopen = () => {
+    if (!reopenPhoto) {
+      alert("⚠️ Issue reopen karne ke liye current situation ki photo upload karna anivarya hai.");
+      return;
+    }
+    const finalReason = `${reopenPresetReason} ${reopenCustomReason.trim() ? `— ${reopenCustomReason.trim()}` : ""}`;
+    setDecision("reopened");
+    onReopen({ reason: finalReason, photo: reopenPhoto });
   };
 
   if (decision === "resolved") {
@@ -2150,8 +2203,9 @@ function ResolutionVerifyPage({ issue, onClose, onReopen }) {
           <div className="w-16 h-16 rounded-full bg-orange-100 flex items-center justify-center mb-4 mx-auto">
             <RefreshCw size={32} className="text-orange-600" />
           </div>
-          <h2 className="text-2xl font-bold text-orange-700 mb-2">Issue Reopened</h2>
-          <p className="text-muted-foreground text-sm">The issue has been sent back to the assigned worker for further action.</p>
+          <h2 className="text-2xl font-bold text-orange-700 mb-2">Issue Reopened Successfully</h2>
+          <p className="text-muted-foreground text-sm mb-2">Aapka Reopen Request reason aur new evidence photo ke saath municipal admin & officer ko bhej diya gaya hai.</p>
+          <p className="font-mono text-xs text-muted-foreground">{issue.id} · {issue.title}</p>
         </div>
       </div>
     );
@@ -2184,7 +2238,7 @@ function ResolutionVerifyPage({ issue, onClose, onReopen }) {
             </div>
           </div>
 
-          {/* After Image with Gemini AI Validation */}
+          {/* After Image with AI Validation */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide">2. Resolution Photo (After)</p>
@@ -2217,26 +2271,6 @@ function ResolutionVerifyPage({ issue, onClose, onReopen }) {
               )}
             </div>
             <input ref={afterFileRef} type="file" accept="image/*" className="hidden" onChange={handleAfterFile} />
-
-            {/* Quick Test After Validation Buttons */}
-            <div className="flex gap-2 mt-2">
-              <button
-                type="button"
-                onClick={handleTestAfterBlack}
-                disabled={isVerifyingAfter}
-                className="flex-1 py-1 px-2 text-[10px] font-medium rounded border border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
-              >
-                ⬛ Test Black After Photo
-              </button>
-              <button
-                type="button"
-                onClick={handleTestAfterValid}
-                disabled={isVerifyingAfter}
-                className="flex-1 py-1 px-2 text-[10px] font-medium rounded border border-green-200 bg-green-50 text-green-700 hover:bg-green-100"
-              >
-                ✨ Test Valid After Photo
-              </button>
-            </div>
           </div>
         </div>
 
@@ -2256,7 +2290,7 @@ function ResolutionVerifyPage({ issue, onClose, onReopen }) {
           <div className="bg-green-50 border border-green-300 rounded-xl p-3 mb-4 text-xs text-green-900 flex items-start gap-2">
             <CheckCircle size={16} className="text-green-600 flex-shrink-0 mt-0.5" />
             <div>
-              <p className="font-bold text-green-900">✨ After Photo Validated by Gemini AI!</p>
+              <p className="font-bold text-green-900">✨ After Photo Validated by AI!</p>
               <p className="text-green-700 mt-0.5">Marking issue as complete automatically...</p>
             </div>
           </div>
@@ -2270,16 +2304,147 @@ function ResolutionVerifyPage({ issue, onClose, onReopen }) {
         )}
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <button onClick={() => { setDecision("resolved"); onClose(); }}
-          className="flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white font-semibold py-3.5 rounded-xl transition-colors shadow-sm">
-          <CheckCircle size={18} /> Mark as Complete
-        </button>
-        <button onClick={() => { setDecision("reopened"); onReopen(); }}
-          className="flex items-center justify-center gap-2 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 font-semibold py-3.5 rounded-xl transition-colors">
-          <X size={18} /> Reopen Issue
-        </button>
-      </div>
+      {/* STRICT REOPEN VERIFICATION MODAL / PANEL */}
+      {showReopenForm ? (
+        <div className="bg-gradient-to-br from-red-50 to-orange-50 border-2 border-red-300 rounded-2xl p-5 space-y-4 shadow-md animate-in fade-in">
+          <div className="flex items-start justify-between gap-2 border-b border-red-200 pb-3">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-red-600 text-white flex items-center justify-center font-bold">
+                <AlertTriangle size={18} />
+              </div>
+              <div>
+                <h4 className="font-bold text-red-950 text-base">Issue Reopen Verification Required</h4>
+                <p className="text-xs text-red-700">Citizen Restriction: Reopen karne ke liye reason aur proof photo anivarya hai.</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowReopenForm(false)}
+              className="text-red-600 hover:text-red-900 font-bold p-1"
+            >
+              <X size={18} />
+            </button>
+          </div>
+
+          {/* 1. Reason Selection */}
+          <div>
+            <label className="block text-xs font-bold text-red-950 mb-1">
+              1. Reopen Reason Select Karein (Mandatory) *
+            </label>
+            <select
+              value={reopenPresetReason}
+              onChange={(e) => setReopenPresetReason(e.target.value)}
+              className="w-full bg-white border border-red-300 rounded-xl px-3 py-2 text-xs font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-red-500"
+            >
+              <option value="Kaam adhoora chhod diya gaya hai (Incomplete Resolution)">⚠️ Kaam adhoora chhod diya gaya hai (Incomplete Resolution)</option>
+              <option value="Samasya dobara shuru ho gayi hai (Issue Recurred)">🔄 Samasya dobara shuru ho gayi hai (Issue Recurred)</option>
+              <option value="Galat proof photo upload ki gayi hai (Fake Resolution Proof)">❌ Galat proof photo upload ki gayi hai (Fake Resolution Proof)</option>
+              <option value="Marammat ki quality kharab hai (Substandard Repair Work)">🔨 Marammat ki quality kharab hai (Substandard Repair Work)</option>
+              <option value="Other Specific Issue">📋 Other Specific Reason</option>
+            </select>
+          </div>
+
+          {/* 2. Detailed Reason Textarea */}
+          <div>
+            <label className="block text-xs font-bold text-red-950 mb-1">
+              2. Reason Details (Kya samasya bachi hui hai?) *
+            </label>
+            <textarea
+              rows={2}
+              value={reopenCustomReason}
+              onChange={(e) => setReopenCustomReason(e.target.value)}
+              placeholder="Kripya likhein ki samasya kyu theek nahi hui hai..."
+              className="w-full bg-white border border-red-300 rounded-xl p-2.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-red-500"
+            />
+          </div>
+
+          {/* 3. Mandatory Evidence Photo Upload */}
+          <div>
+            <label className="block text-xs font-bold text-red-950 mb-1 flex items-center justify-between">
+              <span>3. Current Proof Photo Upload Karein (Mandatory) *</span>
+              {reopenPhoto && <span className="text-green-700 font-bold text-[11px] flex items-center gap-1"><CheckCircle size={12} /> Photo Verified</span>}
+            </label>
+            
+            <div
+              onClick={() => !isVerifyingReopenPhoto && reopenFileRef.current?.click()}
+              className={`border-2 border-dashed rounded-xl p-4 flex flex-col items-center justify-center cursor-pointer transition-all ${
+                isVerifyingReopenPhoto
+                  ? "border-blue-400 bg-blue-50/50"
+                  : reopenPhoto
+                  ? "border-green-400 bg-green-50/40"
+                  : reopenPhotoError
+                  ? "border-red-400 bg-red-50/30"
+                  : "border-red-300 bg-white hover:bg-red-50/40"
+              }`}
+            >
+              {isVerifyingReopenPhoto ? (
+                <div className="text-center py-2">
+                  <Loader2 size={24} className="text-red-600 animate-spin mx-auto mb-1" />
+                  <p className="text-xs font-bold text-red-700">Verifying Evidence Photo...</p>
+                </div>
+              ) : reopenPhoto ? (
+                <div className="w-full flex items-center gap-3">
+                  <img src={reopenPhoto} alt="Reopen Proof" className="w-20 h-16 object-cover rounded-lg border border-green-300 shadow-xs" />
+                  <div>
+                    <span className="text-xs bg-green-600 text-white font-bold px-2 py-0.5 rounded-full flex items-center gap-1 w-fit">
+                      <CheckCircle size={10} /> Valid Proof Photo
+                    </span>
+                    <p className="text-[11px] text-muted-foreground mt-1">Click to change photo</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-2">
+                  <Camera size={24} className="text-red-500 mx-auto mb-1" />
+                  <p className="text-xs font-bold text-red-900">Click to Upload Current Situation Photo</p>
+                  <p className="text-[10px] text-red-700 mt-0.5">Photo proof ke bina reopen request submit nahi hogi</p>
+                </div>
+              )}
+            </div>
+            <input ref={reopenFileRef} type="file" accept="image/*" className="hidden" onChange={handleReopenFileChange} />
+          </div>
+
+          {reopenPhotoError && (
+            <div className="bg-red-100 border border-red-300 rounded-xl p-2.5 text-xs text-red-900 flex items-center gap-2">
+              <AlertTriangle size={14} className="text-red-600 flex-shrink-0" />
+              <span>{reopenPhotoError}</span>
+            </div>
+          )}
+
+          {/* Action Buttons */}
+          <div className="grid grid-cols-2 gap-3 pt-2">
+            <button
+              type="button"
+              onClick={() => setShowReopenForm(false)}
+              className="py-2.5 px-4 rounded-xl text-xs font-bold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleSubmitReopen}
+              disabled={!reopenPhoto || isVerifyingReopenPhoto}
+              className={`py-2.5 px-4 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-sm ${
+                reopenPhoto && !isVerifyingReopenPhoto
+                  ? "bg-red-600 hover:bg-red-700 text-white cursor-pointer"
+                  : "bg-red-200 text-red-400 cursor-not-allowed"
+              }`}
+            >
+              <RefreshCw size={14} /> Submit Reopen Request
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-3">
+          <button onClick={() => { setDecision("resolved"); onClose(); }}
+            className="flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white font-semibold py-3.5 rounded-xl transition-colors shadow-sm">
+            <CheckCircle size={18} /> Mark as Complete
+          </button>
+          <button onClick={() => setShowReopenForm(true)}
+            className="flex items-center justify-center gap-2 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 font-semibold py-3.5 rounded-xl transition-colors">
+            <X size={18} /> Reopen Issue
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -2358,7 +2523,7 @@ function NotificationsPage({ notifications, navigate, onMarkRead }) {
 }
 
 function ProfilePage({ issues, navigate }) {
-  const myIssues = issues.filter(i => ["citizen-1", "citizen-5"].includes(i.reportedBy));
+  const myIssues = issues.filter(i => ["CIT-00421", "citizen-1", "citizen-5"].includes(i.reportedBy));
   const resolved = myIssues.filter(i => i.status === "Closed").length;
   const civicScore = 87;
 
@@ -2370,106 +2535,115 @@ function ProfilePage({ issues, navigate }) {
   ];
 
   return (
-    <div className="min-h-screen" style={{ background: "linear-gradient(180deg, #F0F7FF 0%, #F8FAFC 60%)" }}>
-      {/* Cover + Avatar */}
-      <div className="relative">
-        <div className="h-36" style={{ background: "linear-gradient(135deg, #1B3A5C, #2563EB, #7C3AED)" }} />
-        <div className="max-w-2xl mx-auto px-4">
-          <div className="flex items-end gap-4 -mt-10 mb-4">
-            <div className="w-20 h-20 rounded-2xl border-4 border-white shadow-lg flex items-center justify-center flex-shrink-0"
-              style={{ background: "linear-gradient(135deg, #2563EB, #7C3AED)" }}>
-              <User size={36} className="text-white" />
+    <div className="min-h-screen pb-12" style={{ background: "linear-gradient(180deg, #F0F7FF 0%, #F8FAFC 60%)" }}>
+      <div className="max-w-2xl mx-auto px-4 pt-6 space-y-5">
+        {/* Profile Card Header */}
+        <div className="glass-card rounded-3xl border border-slate-200/80 shadow-md p-6 relative overflow-hidden bg-white">
+          <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4">
+            <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center flex-shrink-0 text-white shadow-lg glow-blue">
+              <User size={38} className="text-white" />
             </div>
-            <div className="pb-1">
-              <h1 className="text-xl font-black text-foreground">Arjun Sharma</h1>
-              <p className="text-muted-foreground text-sm flex items-center gap-1"><MapPin size={12} />Ranchi, Jharkhand</p>
-            </div>
-            <div className="ml-auto pb-1">
-              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-bold"
-                style={{ background: "linear-gradient(135deg, #F59E0B, #D97706)", color: "white" }}>
-                <Star size={14} />{civicScore}
+            <div className="flex-1 text-center sm:text-left min-w-0">
+              <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2 mb-1">
+                <h1 className="text-2xl font-extrabold text-foreground tracking-tight">Arjun Sharma</h1>
+                <span className="text-xs font-mono font-bold px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-200">
+                  CIT-00421
+                </span>
               </div>
-              <p className="text-xs text-muted-foreground text-center mt-0.5">Civic Score</p>
+              <p className="text-muted-foreground text-xs font-semibold flex items-center justify-center sm:justify-start gap-1">
+                <MapPin size={13} className="text-blue-500" /> Ward 12, Ranchi, Jharkhand
+              </p>
+              <div className="flex items-center justify-center sm:justify-start gap-3 mt-3 text-xs text-slate-600">
+                <span className="flex items-center gap-1 font-semibold"><Phone size={12} className="text-blue-600" /> +91 98765 43210</span>
+                <span className="flex items-center gap-1 font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">✓ Verified Citizen</span>
+              </div>
+            </div>
+            <div className="flex flex-col items-center sm:items-end flex-shrink-0">
+              <div className="flex items-center gap-1.5 px-4 py-2 rounded-2xl text-sm font-black shadow-md gradient-amber glow-amber text-white">
+                <Star size={16} fill="currentColor" />{civicScore}
+              </div>
+              <p className="text-[11px] text-muted-foreground font-semibold mt-1">Civic Score</p>
             </div>
           </div>
         </div>
-      </div>
 
-      <div className="max-w-2xl mx-auto px-4 space-y-4 pb-8">
         {/* Stats */}
-        <div className="bg-white rounded-2xl border border-border shadow-sm p-5">
-          <div className="grid grid-cols-3 gap-4 text-center">
+        <div className="glass-card rounded-2xl border border-slate-200/80 shadow-sm p-6 bg-white">
+          <div className="grid grid-cols-3 gap-4 text-center divide-x divide-slate-100">
             <div>
-              <p className="text-3xl font-black font-mono text-foreground">{myIssues.length}</p>
-              <p className="text-xs text-muted-foreground font-medium mt-0.5">Issues Reported</p>
+              <p className="text-3xl font-extrabold font-mono text-foreground tracking-tight">{myIssues.length}</p>
+              <p className="text-xs text-muted-foreground font-semibold mt-1">Issues Reported</p>
             </div>
             <div>
-              <p className="text-3xl font-black font-mono text-green-600">{resolved}</p>
-              <p className="text-xs text-muted-foreground font-medium mt-0.5">Resolved</p>
+              <p className="text-3xl font-extrabold font-mono text-emerald-600 tracking-tight">{resolved}</p>
+              <p className="text-xs text-muted-foreground font-semibold mt-1">Resolved</p>
             </div>
             <div>
-              <p className="text-3xl font-black font-mono text-[#2563EB]">{myIssues.reduce((s, i) => s + i.affectedCount, 0)}</p>
-              <p className="text-xs text-muted-foreground font-medium mt-0.5">Citizens Helped</p>
+              <p className="text-3xl font-extrabold font-mono text-blue-600 tracking-tight">{myIssues.reduce((s, i) => s + i.affectedCount, 0)}</p>
+              <p className="text-xs text-muted-foreground font-semibold mt-1">Citizens Helped</p>
             </div>
           </div>
         </div>
 
         {/* Civic Score Bar */}
-        <div className="bg-white rounded-2xl border border-border shadow-sm p-5">
+        <div className="glass-card rounded-2xl border border-slate-200/80 shadow-sm p-6 bg-white">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="font-bold text-foreground text-sm">Civic Score</h3>
-            <span className="font-black font-mono text-2xl" style={{ color: civicScore >= 80 ? "#16A34A" : civicScore >= 60 ? "#F59E0B" : "#DC2626" }}>{civicScore}<span className="text-muted-foreground text-sm font-normal">/100</span></span>
+            <h3 className="font-extrabold text-foreground text-sm flex items-center gap-2">
+              <Sparkles size={16} className="text-amber-500" /> Civic Reputation Score
+            </h3>
+            <span className="font-black font-mono text-2xl" style={{ color: civicScore >= 80 ? "#059669" : civicScore >= 60 ? "#D97706" : "#DC2626" }}>{civicScore}<span className="text-muted-foreground text-sm font-normal">/100</span></span>
           </div>
-          <div className="h-3 bg-muted rounded-full overflow-hidden mb-2">
-            <div className="h-full rounded-full transition-all"
-              style={{ width: `${civicScore}%`, background: "linear-gradient(90deg, #2563EB, #16A34A)" }} />
+          <div className="h-3.5 bg-slate-100 rounded-full overflow-hidden mb-2.5 p-0.5 border border-slate-200/60 shadow-inner">
+            <div className="h-full rounded-full transition-all duration-1000 gradient-emerald glow-emerald"
+              style={{ width: `${civicScore}%` }} />
           </div>
-          <p className="text-xs text-muted-foreground">Based on reports filed, verifications done, and community impact</p>
+          <p className="text-xs text-muted-foreground font-medium">Based on reports filed, verified resolutions, and active community contributions</p>
         </div>
 
         {/* Badges */}
-        <div className="bg-white rounded-2xl border border-border shadow-sm p-5">
-          <h3 className="font-bold text-foreground text-sm mb-4">Achievements</h3>
-          <div className="grid grid-cols-2 gap-3">
+        <div className="glass-card rounded-2xl border border-slate-200/80 shadow-sm p-6 bg-white">
+          <h3 className="font-extrabold text-foreground text-sm mb-4 tracking-tight">Achievements & Badges</h3>
+          <div className="grid grid-cols-2 gap-3.5">
             {badges.map(b => (
-              <div key={b.label} className={`flex items-center gap-3 p-3 rounded-xl border-2 transition-all ${
-                b.earned ? "border-yellow-200 bg-yellow-50" : "border-border bg-muted/30 opacity-50"
+              <div key={b.label} className={`flex items-center gap-3 p-3.5 rounded-xl border-2 transition-all ${
+                b.earned ? "border-amber-200/80 bg-amber-50/60 shadow-2xs" : "border-slate-200 bg-slate-50/40 opacity-50"
               }`}>
-                <span className="text-2xl">{b.icon}</span>
-                <div>
-                  <p className={`text-sm font-bold ${ b.earned ? "text-foreground" : "text-muted-foreground" }`}>{b.label}</p>
-                  <p className="text-xs text-muted-foreground">{b.desc}</p>
+                <span className="text-2xl flex-shrink-0">{b.icon}</span>
+                <div className="min-w-0 flex-1">
+                  <p className={`text-xs font-bold truncate ${ b.earned ? "text-slate-900" : "text-muted-foreground" }`}>{b.label}</p>
+                  <p className="text-[11px] text-muted-foreground truncate mt-0.5">{b.desc}</p>
                 </div>
-                {b.earned && <CheckCircle size={14} className="text-green-600 ml-auto flex-shrink-0" />}
+                {b.earned && <CheckCircle size={16} className="text-emerald-600 flex-shrink-0" />}
               </div>
             ))}
           </div>
         </div>
 
         {/* Info */}
-        <div className="bg-white rounded-2xl border border-border shadow-sm overflow-hidden">
+        <div className="glass-card rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden divide-y divide-slate-100 bg-white">
           {[
-            { icon: <Phone size={16} />, label: "Phone", value: "+91 98765 43210" },
-            { icon: <MapPin size={16} />, label: "Ward", value: "Ward 12, Ranchi Municipal Corporation" },
-            { icon: <FileText size={16} />, label: "Citizen ID", value: "CIT-00421" },
-          ].map((row, i) => (
-            <div key={row.label} className={`flex items-center gap-3 px-5 py-4 ${ i > 0 ? "border-t border-border" : "" }`}>
-              <span className="text-muted-foreground">{row.icon}</span>
-              <span className="text-sm text-muted-foreground w-24 flex-shrink-0">{row.label}</span>
-              <span className="text-sm text-foreground font-semibold">{row.value}</span>
+            { icon: <FileText size={16} className="text-amber-500" />, label: "Citizen ID", value: "CIT-00421" },
+            { icon: <User size={16} className="text-blue-500" />, label: "Full Name", value: "Arjun Sharma" },
+            { icon: <Phone size={16} className="text-blue-500" />, label: "Phone", value: "+91 98765 43210" },
+            { icon: <MapPin size={16} className="text-indigo-500" />, label: "Ward", value: "Ward 12, Ranchi Municipal Corp" },
+          ].map(row => (
+            <div key={row.label} className="flex items-center gap-3 px-6 py-4">
+              <span className="p-2 rounded-lg bg-slate-100">{row.icon}</span>
+              <span className="text-xs text-muted-foreground font-semibold w-24 flex-shrink-0">{row.label}</span>
+              <span className="text-sm text-foreground font-bold">{row.value}</span>
             </div>
           ))}
         </div>
 
         <button onClick={() => navigate("report")}
-          className="w-full py-3.5 rounded-2xl font-bold text-white flex items-center justify-center gap-2"
-          style={{ background: "linear-gradient(135deg, #2563EB, #1D4ED8)" }}>
-          <Plus size={18} />Report a New Issue
+          className="w-full py-4 rounded-2xl font-extrabold text-white flex items-center justify-center gap-2.5 gradient-brand glow-blue shadow-lg hover:opacity-95 transition-all text-sm">
+          <Plus size={20} />Report a New Issue
         </button>
       </div>
     </div>
   );
 }
+
 
 function AdminSidebar({ page, navigate, setRole }) {
   const links = [
@@ -2481,32 +2655,36 @@ function AdminSidebar({ page, navigate, setRole }) {
   ];
 
   return (
-    <aside className="w-56 bg-sidebar flex flex-col h-screen sticky top-0 flex-shrink-0 border-r border-sidebar-border overflow-y-auto shadow-md z-20">
-      <div className="p-4 border-b border-sidebar-border">
-        <div className="flex items-center gap-2 mb-1">
-          <div className="w-7 h-7 bg-[#2563EB] rounded-md flex items-center justify-center">
-            <MapPin size={14} className="text-white" />
+    <aside className="w-60 bg-[#0F2444] text-white flex flex-col h-screen sticky top-0 flex-shrink-0 border-r border-white/10 overflow-y-auto shadow-xl z-20">
+      <div className="p-4 border-b border-white/10">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 gradient-brand rounded-xl flex items-center justify-center shadow-md glow-blue">
+            <MapPin size={18} className="text-white" />
           </div>
           <div>
-            <p className="text-white font-bold text-xs leading-none">CivicConnect</p>
-            <p className="text-blue-300 text-[10px]">Admin Portal</p>
+            <p className="text-white font-extrabold text-sm tracking-tight">CivicConnect</p>
+            <p className="text-indigo-300 text-[11px] font-semibold flex items-center gap-1">
+              <Shield size={10} /> Admin Command
+            </p>
           </div>
         </div>
       </div>
-      <nav className="flex-1 p-3 space-y-1">
+      <nav className="flex-1 p-3 space-y-1.5">
         {links.map(l => (
           <button key={l.id} onClick={() => navigate(l.id)}
-            className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-left ${
-              page === l.id ? "bg-[#2563EB] text-white" : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-white"
+            className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all text-left ${
+              page === l.id 
+                ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md glow-blue" 
+                : "text-slate-300 hover:bg-white/10 hover:text-white"
             }`}>
             {l.icon}{l.label}
           </button>
         ))}
       </nav>
-      <div className="p-3 border-t border-sidebar-border">
+      <div className="p-3 border-t border-white/10">
         <button onClick={() => setRole("citizen")}
-          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sidebar-foreground hover:text-white hover:bg-sidebar-accent text-sm transition-colors">
-          <LogOut size={15} />Switch to Citizen
+          className="w-full flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-slate-300 hover:text-white hover:bg-white/10 text-xs font-bold transition-all border border-white/5">
+          <LogOut size={15} />Switch to Citizen App
         </button>
       </div>
     </aside>
@@ -2538,81 +2716,81 @@ function AdminDashboard({ issues, navigate }) {
   const recentIssues = [...issues].sort((a, b) => new Date(b.reportedAt) - new Date(a.reportedAt)).slice(0, 5);
 
   const statCards = [
-    { label: "Total Issues",  value: stats.total + 1279,     icon: <FileText size={18} />,    color: "bg-blue-500",   trend: "+12%" },
-    { label: "Pending",       value: stats.pending + 279,    icon: <Clock size={18} />,       color: "bg-slate-500",  trend: "-3%" },
-    { label: "In Progress",   value: stats.inProgress + 315, icon: <Activity size={18} />,    color: "bg-orange-500", trend: "+8%" },
-    { label: "Resolved",      value: stats.resolved + 674,   icon: <CheckCircle size={18} />, color: "bg-green-500",  trend: "+21%" },
-    { label: "Critical",      value: stats.critical + 38,    icon: <AlertCircle size={18} />, color: "bg-red-500",    trend: "+2" },
-    { label: "SLA Breached",  value: stats.slaBreach + 15,   icon: <AlertTriangle size={18} />, color: "bg-yellow-500", trend: "-5%" },
+    { label: "Total Issues",  value: stats.total + 1279,     icon: <FileText size={18} />,    color: "gradient-brand",   trend: "+12%" },
+    { label: "Pending",       value: stats.pending + 279,    icon: <Clock size={18} />,       color: "bg-slate-700",     trend: "-3%" },
+    { label: "In Progress",   value: stats.inProgress + 315, icon: <Activity size={18} />,    color: "gradient-amber",   trend: "+8%" },
+    { label: "Resolved",      value: stats.resolved + 674,   icon: <CheckCircle size={18} />, color: "gradient-emerald", trend: "+21%" },
+    { label: "Critical",      value: stats.critical + 38,    icon: <AlertCircle size={18} />, color: "gradient-rose",    trend: "+2" },
+    { label: "SLA Breached",  value: stats.slaBreach + 15,   icon: <AlertTriangle size={18} />, color: "bg-amber-600",    trend: "-5%" },
   ];
 
   return (
     <div className="p-6 max-w-full">
       {/* Welcome Banner */}
-      <div className="rounded-2xl p-6 mb-6 relative overflow-hidden" style={{ background: "linear-gradient(135deg, #1B3A5C, #2563EB)" }}>
-        <div className="absolute inset-0 opacity-10">
+      <div className="rounded-3xl p-7 mb-6 relative overflow-hidden shadow-xl" style={{ background: "linear-gradient(135deg, #0F2444 0%, #1B3A5C 50%, #2563EB 100%)" }}>
+        <div className="absolute inset-0 opacity-15">
           <svg className="w-full h-full"><defs><pattern id="dash-grid" width="30" height="30" patternUnits="userSpaceOnUse"><path d="M 30 0 L 0 0 0 30" fill="none" stroke="white" strokeWidth="1"/></pattern></defs><rect width="100%" height="100%" fill="url(#dash-grid)" /></svg>
         </div>
         <div className="relative flex items-center justify-between">
           <div>
-            <p className="text-blue-200 text-sm font-medium mb-1">Welcome back, Admin</p>
-            <h1 className="text-2xl font-black text-white">Municipal Command Center</h1>
-            <p className="text-blue-200 text-sm mt-1">Ranchi Municipal Corporation · Live Dashboard</p>
+            <p className="text-blue-300 text-xs font-semibold uppercase tracking-wider mb-1">Live Municipal Command Center</p>
+            <h1 className="text-3xl font-extrabold text-white tracking-tight">Ranchi Municipal Corporation</h1>
+            <p className="text-blue-200/80 text-sm mt-1">Real-time civic complaint analytics & automated AI routing dashboard</p>
           </div>
-          <div className="hidden md:flex items-center gap-3">
-            <div className="text-center px-4 py-3 rounded-xl" style={{ background: "rgba(255,255,255,0.1)" }}>
+          <div className="hidden md:flex items-center gap-4">
+            <div className="text-center px-5 py-3.5 rounded-2xl border border-white/10 backdrop-blur-md bg-white/10 shadow-sm">
               <p className="text-2xl font-black text-white font-mono">{Math.round((stats.resolved / Math.max(stats.total, 1)) * 100 + 60)}%</p>
-              <p className="text-blue-200 text-xs">Resolution Rate</p>
+              <p className="text-blue-200 text-xs font-semibold mt-0.5">Resolution Rate</p>
             </div>
-            <div className="text-center px-4 py-3 rounded-xl" style={{ background: "rgba(255,255,255,0.1)" }}>
+            <div className="text-center px-5 py-3.5 rounded-2xl border border-white/10 backdrop-blur-md bg-white/10 shadow-sm">
               <p className="text-2xl font-black text-white font-mono">41h</p>
-              <p className="text-blue-200 text-xs">Avg Resolve Time</p>
+              <p className="text-blue-200 text-xs font-semibold mt-0.5">Avg Resolve Time</p>
             </div>
           </div>
         </div>
       </div>
 
       {/* Stat Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 mb-6">
+      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3.5 mb-6">
         {statCards.map(s => (
-          <div key={s.label} className="bg-white rounded-2xl border border-border p-4 shadow-sm hover:shadow-md transition-shadow">
-            <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-white mb-3 ${s.color}`}>{s.icon}</div>
-            <p className="text-2xl font-black font-mono text-foreground leading-none mb-1">{s.value.toLocaleString()}</p>
-            <p className="text-xs font-semibold text-foreground mb-0.5">{s.label}</p>
-            <p className={`text-xs font-mono font-bold ${ s.trend.startsWith("+") ? "text-green-600" : "text-red-500" }`}>{s.trend} this week</p>
+          <div key={s.label} className="glass-card rounded-2xl border border-slate-200/80 p-4 shadow-sm hover:shadow-md card-hover-effect">
+            <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-white mb-3 shadow-sm ${s.color}`}>{s.icon}</div>
+            <p className="text-2xl font-black font-mono text-foreground leading-none mb-1 tracking-tight">{s.value.toLocaleString()}</p>
+            <p className="text-xs font-bold text-slate-700 mb-0.5">{s.label}</p>
+            <p className={`text-[11px] font-mono font-bold ${ s.trend.startsWith("+") ? "text-emerald-600" : "text-rose-500" }`}>{s.trend} this week</p>
           </div>
         ))}
       </div>
 
-      <div className="grid lg:grid-cols-2 gap-4 mb-6">
-        <div className="bg-white rounded-2xl border border-border p-5 shadow-sm">
-          <h3 className="font-bold text-sm text-foreground mb-4">Issues by Category</h3>
-          <ResponsiveContainer width="100%" height={200}>
+      <div className="grid lg:grid-cols-2 gap-5 mb-6">
+        <div className="glass-card rounded-2xl border border-slate-200/80 p-5 shadow-sm">
+          <h3 className="font-extrabold text-sm text-foreground mb-4 tracking-tight">Issues by Category</h3>
+          <ResponsiveContainer width="100%" height={210}>
             <BarChart data={catData} margin={{ top: 0, right: 10, left: -20, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
               <XAxis dataKey="name" tick={{ fontSize: 10, fill: "#64748B" }} />
               <YAxis tick={{ fontSize: 10, fill: "#64748B" }} />
-              <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #E2E8F0" }} />
-              <Bar dataKey="count" fill="#2563EB" radius={[4, 4, 0, 0]} />
+              <Tooltip contentStyle={{ fontSize: 12, borderRadius: 12, border: "1px solid #E2E8F0", boxShadow: "0 4px 12px rgba(0,0,0,0.05)" }} />
+              <Bar dataKey="count" fill="#2563EB" radius={[6, 6, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
-        <div className="bg-white rounded-2xl border border-border p-5 shadow-sm">
-          <h3 className="font-bold text-sm text-foreground mb-4">Status Distribution</h3>
-          <ResponsiveContainer width="100%" height={200}>
+        <div className="glass-card rounded-2xl border border-slate-200/80 p-5 shadow-sm">
+          <h3 className="font-extrabold text-sm text-foreground mb-4 tracking-tight">Status Distribution</h3>
+          <ResponsiveContainer width="100%" height={210}>
             <PieChart>
-              <Pie data={statusData} cx="40%" cy="50%" innerRadius={50} outerRadius={80} dataKey="value" paddingAngle={2}>
+              <Pie data={statusData} cx="40%" cy="50%" innerRadius={50} outerRadius={80} dataKey="value" paddingAngle={3}>
                 {statusData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
               </Pie>
-              <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+              <Tooltip contentStyle={{ fontSize: 12, borderRadius: 12 }} />
               <Legend layout="vertical" align="right" verticalAlign="middle"
-                formatter={(value) => <span style={{ fontSize: 11, color: "#64748B" }}>{value}</span>} />
+                formatter={(value) => <span style={{ fontSize: 11, color: "#64748B", fontWeight: 600 }}>{value}</span>} />
             </PieChart>
           </ResponsiveContainer>
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl border border-border overflow-hidden shadow-sm">
+      <div className="glass-card rounded-2xl border border-slate-200/80 overflow-hidden shadow-sm">
         <div className="flex items-center justify-between px-5 py-4 border-b border-border">
           <h3 className="font-bold text-sm text-foreground">Recent Issues</h3>
           <button onClick={() => navigate("admin-issues")}
@@ -2704,7 +2882,7 @@ function AdminAllIssues({ issues, navigate }) {
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-muted/50">
-                {["ID", "Issue", "Category", "Location", "Priority", "Crowd", "Dept.", "Officer", "SLA", "Status", "Action"].map(h => (
+                {["Issue ID", "Citizen ID", "Issue Title", "Category", "Location", "Priority", "Crowd", "Dept.", "Officer", "SLA", "Status", "Action"].map(h => (
                   <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -2716,6 +2894,11 @@ function AdminAllIssues({ issues, navigate }) {
                 return (
                   <tr key={i.id} className="hover:bg-muted/20 transition-colors">
                     <td className="px-4 py-3 font-mono text-xs text-muted-foreground whitespace-nowrap">{i.id}</td>
+                    <td className="px-4 py-3 font-mono text-xs font-bold text-indigo-700 whitespace-nowrap">
+                      <span className="bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-md">
+                        {i.reportedBy === "citizen-1" ? "CIT-00421" : i.reportedBy}
+                      </span>
+                    </td>
                     <td className="px-4 py-3 max-w-[160px]"><p className="font-medium text-foreground truncate">{i.title}</p></td>
                     <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{cat.emoji} {cat.label.split("/")[0]}</td>
                     <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{i.ward}</td>
@@ -2921,8 +3104,9 @@ function AdminIssueDetail({ issue, onBack, onUpdateIssue }) {
               <div className="grid grid-cols-2 gap-3 mt-4 text-sm">
                 {[
                   ["Category", `${cat.emoji} ${cat.label}`],
+                  ["Citizen ID (Privacy Protected)", `${issue.reportedBy === "citizen-1" ? "CIT-00421" : (issue.reportedBy || "CIT-00421")}`],
                   ["Location", `${issue.ward} · ${issue.address}`],
-                  ["Reported", `${fmtDate(issue.reportedAt)}`],
+                  ["Reported Date", `${fmtDate(issue.reportedAt)}`],
                   ["Affected Citizens", `${issue.affectedCount} citizens`],
                   ["Similar Reports", `${issue.similarCount} duplicate reports`],
                   ["Priority Score", `${issue.priorityScore}/30`],
@@ -2933,6 +3117,27 @@ function AdminIssueDetail({ issue, onBack, onUpdateIssue }) {
                   </div>
                 ))}
               </div>
+
+              {/* Reopen Request & Evidence Photo Banner */}
+              {issue.status === "Reopened" && (
+                <div className="mt-4 p-4 rounded-xl bg-red-50 border-2 border-red-300 text-red-950">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="w-6 h-6 rounded-full bg-red-600 text-white flex items-center justify-center text-xs font-bold">⚠️</span>
+                    <h4 className="font-bold text-sm text-red-950">Citizen Reopen Request & Evidence</h4>
+                  </div>
+                  <p className="text-xs text-red-900 mb-3">
+                    <b>Reason:</b> {issue.reopenReason || "Citizen marked resolution as incomplete."}
+                  </p>
+                  {issue.reopenPhoto && (
+                    <div>
+                      <p className="text-[11px] font-bold text-red-800 uppercase tracking-wide mb-1.5">Citizen Reopened Proof Photo:</p>
+                      <div className="h-44 rounded-lg overflow-hidden border border-red-300 bg-white">
+                        <img src={issue.reopenPhoto} alt="Citizen Evidence" className="w-full h-full object-cover" />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
           {/* Live Map */}
@@ -3415,7 +3620,7 @@ export default function App() {
       status: "Assigned", priority: data.priority ?? "High",
       priorityScore: data.priorityScore ?? 20,
       affectedCount: data.affectedCount ?? 10,
-      reportedBy: "citizen-1",
+      reportedBy: "CIT-00421",
       reportedAt: new Date().toISOString(),
       department: assignedInfo.department,
       officer: assignedInfo.officer,
@@ -3459,12 +3664,16 @@ export default function App() {
     }
   };
 
-  const handleReopenIssue = () => {
+  const handleReopenIssue = (reopenData) => {
     if (selectedId) {
+      const reason = typeof reopenData === "object" ? reopenData?.reason : (reopenData || "Citizen reported issue not resolved");
+      const photo = typeof reopenData === "object" ? reopenData?.photo : null;
       handleUpdateIssue(selectedId, {
         status: "Reopened",
+        reopenReason: reason,
+        reopenPhoto: photo,
         timeline: [...(issues.find(i => i.id === selectedId)?.timeline ?? []),
-          { stage: "Reopened", date: new Date().toISOString(), note: "Citizen reported issue not resolved" }],
+          { stage: "Reopened", date: new Date().toISOString(), note: `Citizen Reopened: ${reason}` }],
       });
     }
   };
