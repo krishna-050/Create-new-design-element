@@ -357,7 +357,7 @@ function IssueCard({ issue, onView, compact = false }) {
   );
 }
 
-function CitizenHeader({ page, navigate, notifCount, role, setRole }) {
+function CitizenHeader({ page, navigate, notifCount, role, setRole, onBack }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const navLinks = [
     { id: "home",       label: "Home",         icon: <Home size={16} /> },
@@ -370,17 +370,28 @@ function CitizenHeader({ page, navigate, notifCount, role, setRole }) {
     <header className="bg-[#0F2444]/95 text-white sticky top-0 z-40 backdrop-blur-xl border-b border-white/10 shadow-lg">
       <div className="max-w-7xl mx-auto px-4 sm:px-6">
         <div className="flex items-center justify-between h-16">
-          <button onClick={() => navigate("home")} className="flex items-center gap-3 flex-shrink-0 group">
-            <div className="w-9 h-9 rounded-xl gradient-brand flex items-center justify-center shadow-md group-hover:scale-105 transition-transform glow-blue">
-              <MapPin size={18} className="text-white" />
-            </div>
-            <div className="hidden sm:block text-left leading-tight">
-              <p className="font-extrabold text-base tracking-tight text-white flex items-center gap-1.5">
-                CivicConnect <span className="text-[10px] uppercase font-mono tracking-widest px-1.5 py-0.2 bg-blue-500/30 text-blue-300 rounded border border-blue-400/30">AI</span>
-              </p>
-              <p className="text-[11px] text-blue-200/80 font-medium">Jharkhand Municipal System</p>
-            </div>
-          </button>
+          <div className="flex items-center gap-3">
+            {page !== "home" && (
+              <button
+                onClick={onBack}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold transition-all border border-white/20 active:scale-95 shadow-sm cursor-pointer"
+                title="Go Back"
+              >
+                <ArrowLeft size={15} /> <span>Back</span>
+              </button>
+            )}
+            <button onClick={() => navigate("home")} className="flex items-center gap-3 flex-shrink-0 group">
+              <div className="w-9 h-9 rounded-xl gradient-brand flex items-center justify-center shadow-md group-hover:scale-105 transition-transform glow-blue">
+                <MapPin size={18} className="text-white" />
+              </div>
+              <div className="hidden sm:block text-left leading-tight">
+                <p className="font-extrabold text-base tracking-tight text-white flex items-center gap-1.5">
+                  CivicConnect <span className="text-[10px] uppercase font-mono tracking-widest px-1.5 py-0.2 bg-blue-500/30 text-blue-300 rounded border border-blue-400/30">AI</span>
+                </p>
+                <p className="text-[11px] text-blue-200/80 font-medium">Jharkhand Municipal System</p>
+              </div>
+            </button>
+          </div>
 
           <nav className="hidden md:flex items-center gap-1.5 bg-white/5 p-1.5 rounded-2xl border border-white/10">
             {navLinks.map(l => (
@@ -713,7 +724,7 @@ function HomePage({ navigate, issues }) {
   );
 }
 
-function ReportIssuePage({ onSubmit }) {
+function ReportIssuePage({ onSubmit, onBack }) {
   const [category, setCategory] = useState("");
   const [description, setDescription] = useState("");
   const [photoName, setPhotoName] = useState("");
@@ -868,7 +879,7 @@ function ReportIssuePage({ onSubmit }) {
     canvas.width = 150;
     canvas.height = 150;
     const ctx = canvas.getContext("2d");
-    ctx.fillStyle = "#E0AC69"; // Human skin tone pixel distribution
+    ctx.fillStyle = "#E0AC69";
     ctx.fillRect(0, 0, 150, 150);
     const selfieData = canvas.toDataURL("image/jpeg");
     processAndValidateImage(selfieData, "demo_test_selfie.jpg");
@@ -879,7 +890,7 @@ function ReportIssuePage({ onSubmit }) {
     canvas.width = 150;
     canvas.height = 150;
     const ctx = canvas.getContext("2d");
-    ctx.fillStyle = "#ECEFF1"; // Smooth flat indoor surface
+    ctx.fillStyle = "#ECEFF1";
     ctx.fillRect(0, 0, 150, 150);
     const indoorData = canvas.toDataURL("image/jpeg");
     processAndValidateImage(indoorData, "demo_test_indoor_wall.jpg");
@@ -938,55 +949,49 @@ function ReportIssuePage({ onSubmit }) {
         photoData,
         apiKey
       );
-      if (newDesc) {
-        setDescription(newDesc);
-      }
-    } catch (err) {
-      console.error("Regenerate description error:", err);
+      setDescription(newDesc);
+    } catch {
       setDescription(generateCategoryDescription(category, resolvedAddress || "India"));
     } finally {
       setIsRegeneratingDesc(false);
     }
   };
 
-  const handleMapPin = async (pos) => {
-    setMapPosition(pos);
-    const addr = await fetchAddress(pos[0], pos[1]);
-    setResolvedAddress(addr);
-  };
-
-  const handleSubmit = async () => {
-    if (!photoData) { alert("Kripya pehle issue ki ek genuine photo upload karein"); return; }
-    if (!category) { alert("Please select a category"); return; }
-    if (!description.trim()) { alert("Please describe the issue"); return; }
-    const cat = getCatInfo(category);
-    const pos = mapPosition ?? RANCHI_CENTER;
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!category) {
+      alert("Kripya issue ki Category select karein.");
+      return;
+    }
     setSubmitting(true);
-    let address = resolvedAddress || "India";
-    setSubmitting(false);
-    
-    // Extract real ward name from address or default
-    const wardName = address.includes("Ward") 
-      ? address.split(",")[0] 
-      : address.split(",")[0] ? `Ward (${address.split(",")[0].trim()})` : "Current Location";
+
+    const lat = mapPosition ? mapPosition[0] : 23.3441;
+    const lng = mapPosition ? mapPosition[1] : 85.3096;
+    const ward = resolvedAddress ? (resolvedAddress.split(",")[0] || "Ward 12") : "Ward 12";
+
+    const catInfo = getCatInfo(category);
+    const issueTitle = `${catInfo.label} Issue at ${ward}`;
+
+    await new Promise(r => setTimeout(r, 600));
 
     onSubmit({
-      title: aiSuccess?.title || `${cat.label} – Reported Issue`, 
-      category, 
-      description,
-      ward: wardName, 
-      address: address,
-      lat: pos[0], 
-      lng: pos[1], 
-      priority: "High",
-      priorityScore: Math.floor(Math.random() * 8) + 18,
-      affectedCount: Math.floor(Math.random() * 10) + 5,
-      slaHours: 36, 
-      slaElapsed: 0,
-      similarCount: Math.floor(Math.random() * 5) + 2,
+      title: issueTitle,
+      category,
+      description: description || generateCategoryDescription(category, resolvedAddress || "India"),
+      ward,
+      address: resolvedAddress || "Civil Lines, Ranchi, Jharkhand",
+      lat,
+      lng,
       photo: photoData,
+      priority: ["pothole", "water-leak"].includes(category) ? "Critical" : "High",
+      priorityScore: 24,
+      affectedCount: 14,
+      similarCount: 2,
     });
+    setSubmitting(false);
   };
+
+  const catInfo = getCatInfo(category);
 
   const steps = ["Location & GPS", "Photo AI", "Category", "Description"];
   const currentStep = !isGpsOn ? 0 : !photoData ? 1 : !category ? 2 : 3;
@@ -996,6 +1001,15 @@ function ReportIssuePage({ onSubmit }) {
       {/* Page Header */}
       <div style={{ background: "linear-gradient(135deg, #1B3A5C, #2563EB)" }} className="px-4 py-8">
         <div className="max-w-2xl mx-auto">
+          {onBack && (
+            <button
+              type="button"
+              onClick={onBack}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-semibold backdrop-blur-md border border-white/20 transition-all mb-4 active:scale-95 shadow-sm cursor-pointer"
+            >
+              <ArrowLeft size={14} /> Back to Home
+            </button>
+          )}
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
@@ -1503,7 +1517,7 @@ function ReportIssuePage({ onSubmit }) {
   );
 }
 
-function VerificationPage({ issue, onViewIssue, onDuplicate }) {
+function VerificationPage({ issue, onViewIssue, onDuplicate, onBack }) {
   const [step, setStep] = useState(0);
   const [done, setDone] = useState(false);
 
@@ -1525,6 +1539,15 @@ function VerificationPage({ issue, onViewIssue, onDuplicate }) {
 
   return (
     <div className="max-w-lg mx-auto px-4 py-12">
+      {onBack && (
+        <button
+          type="button"
+          onClick={onBack}
+          className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-bold transition-all shadow-2xs active:scale-95 cursor-pointer mb-4"
+        >
+          <ArrowLeft size={14} className="text-blue-600" /> Back
+        </button>
+      )}
       <div className="bg-card rounded-2xl border border-border shadow-md p-8">
         {!done ? (
           <>
@@ -1613,7 +1636,7 @@ function VerificationPage({ issue, onViewIssue, onDuplicate }) {
   );
 }
 
-function DuplicatePage({ masterIssue, navigate }) {
+function DuplicatePage({ masterIssue, navigate, onBack }) {
   const [confirmed, setConfirmed] = useState(false);
   const cat = getCatInfo(masterIssue.category);
 
@@ -1637,6 +1660,15 @@ function DuplicatePage({ masterIssue, navigate }) {
 
   return (
     <div className="max-w-lg mx-auto px-4 py-8">
+      {onBack && (
+        <button
+          type="button"
+          onClick={onBack}
+          className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-bold transition-all shadow-2xs active:scale-95 cursor-pointer mb-4"
+        >
+          <ArrowLeft size={14} className="text-blue-600" /> Back
+        </button>
+      )}
       <div className="bg-yellow-50 border border-yellow-300 rounded-xl p-4 mb-6 flex items-start gap-3">
         <AlertCircle size={20} className="text-yellow-600 flex-shrink-0 mt-0.5" />
         <div>
@@ -1679,7 +1711,7 @@ function DuplicatePage({ masterIssue, navigate }) {
   );
 }
 
-function ExplorePage({ issues, navigate }) {
+function ExplorePage({ issues, navigate, onBack }) {
   const [search, setSearch] = useState("");
   const [catFilter, setCatFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
@@ -1702,6 +1734,15 @@ function ExplorePage({ issues, navigate }) {
       {/* Header */}
       <div style={{ background: "linear-gradient(135deg, #1B3A5C, #2563EB)" }} className="px-4 py-8">
         <div className="max-w-3xl mx-auto">
+          {onBack && (
+            <button
+              type="button"
+              onClick={onBack}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-semibold backdrop-blur-md border border-white/20 transition-all mb-4 active:scale-95 shadow-sm cursor-pointer"
+            >
+              <ArrowLeft size={14} /> Back to Home
+            </button>
+          )}
           <h1 className="text-2xl font-black text-white mb-1">Explore Issues</h1>
           <p className="text-blue-200 text-sm mb-5">Browse all civic issues reported in Ranchi</p>
           {/* Quick stats */}
@@ -1796,9 +1837,14 @@ function IssueDetailPage({ issue, onBack, onSupport, onResolveVerify }) {
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-6">
-      <button onClick={onBack} className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground mb-5 transition-colors">
-        <ArrowLeft size={16} />Back
-      </button>
+      {onBack && (
+        <button
+          onClick={onBack}
+          className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-card border border-border hover:bg-muted text-foreground text-xs font-bold mb-5 transition-all shadow-2xs active:scale-95 cursor-pointer"
+        >
+          <ArrowLeft size={15} className="text-blue-600" /> Back
+        </button>
+      )}
       <div className="rounded-xl overflow-hidden mb-5 h-48 md:h-64 bg-muted relative">
         <img src={photo} alt={issue.title} className="w-full h-full object-cover" />
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
@@ -1953,7 +1999,7 @@ function IssueDetailPage({ issue, onBack, onSupport, onResolveVerify }) {
   );
 }
 
-function MyComplaintsPage({ issues, navigate }) {
+function MyComplaintsPage({ issues, navigate, onBack }) {
   const [tab, setTab] = useState("All");
   const tabs = ["All", "Pending", "In Progress", "Resolved", "Awaiting Verification", "Closed", "Reopened"];
   const myIssues = issues.filter(i => ["citizen-1", "citizen-5"].includes(i.reportedBy));
@@ -1974,6 +2020,15 @@ function MyComplaintsPage({ issues, navigate }) {
       {/* Header */}
       <div style={{ background: "linear-gradient(135deg, #1B3A5C, #2563EB)" }} className="px-4 py-8">
         <div className="max-w-3xl mx-auto">
+          {onBack && (
+            <button
+              type="button"
+              onClick={onBack}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-semibold backdrop-blur-md border border-white/20 transition-all mb-4 active:scale-95 shadow-sm cursor-pointer"
+            >
+              <ArrowLeft size={14} /> Back to Home
+            </button>
+          )}
           <h1 className="text-2xl font-black text-white mb-1">My Complaints</h1>
           <p className="text-blue-200 text-sm mb-5">Track all your submitted civic issues</p>
           <div className="grid grid-cols-3 gap-3">
@@ -2083,7 +2138,7 @@ function MyComplaintsPage({ issues, navigate }) {
   );
 }
 
-function ResolutionVerifyPage({ issue, onClose, onReopen }) {
+function ResolutionVerifyPage({ issue, onClose, onReopen, onBack }) {
   const [decision, setDecision] = useState(null);
   const [afterPhoto, setAfterPhoto] = useState(issue.afterPhoto ?? null);
   const [isVerifyingAfter, setIsVerifyingAfter] = useState(false);
@@ -2213,6 +2268,15 @@ function ResolutionVerifyPage({ issue, onClose, onReopen }) {
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-8 space-y-5">
+      {onBack && (
+        <button
+          type="button"
+          onClick={onBack}
+          className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-bold transition-all shadow-2xs active:scale-95 cursor-pointer"
+        >
+          <ArrowLeft size={15} className="text-blue-600" /> Back to Issue Details
+        </button>
+      )}
       <div className="bg-yellow-50 border border-yellow-300 rounded-xl p-4 flex items-center gap-3">
         <AlertCircle size={20} className="text-yellow-600 flex-shrink-0" />
         <div>
@@ -2449,7 +2513,7 @@ function ResolutionVerifyPage({ issue, onClose, onReopen }) {
   );
 }
 
-function NotificationsPage({ notifications, navigate, onMarkRead }) {
+function NotificationsPage({ notifications, navigate, onMarkRead, onBack }) {
   const icons = {
     info: <Clock size={16} className="text-blue-600" />,
     success: <CheckCircle size={16} className="text-green-600" />,
@@ -2467,6 +2531,15 @@ function NotificationsPage({ notifications, navigate, onMarkRead }) {
       <div style={{ background: "linear-gradient(135deg, #1B3A5C, #2563EB)" }} className="px-4 py-8">
         <div className="max-w-2xl mx-auto flex items-center justify-between">
           <div>
+            {onBack && (
+              <button
+                type="button"
+                onClick={onBack}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-semibold backdrop-blur-md border border-white/20 transition-all mb-3 active:scale-95 shadow-sm cursor-pointer"
+              >
+                <ArrowLeft size={14} /> Back to Home
+              </button>
+            )}
             <h1 className="text-2xl font-black text-white mb-1">Notifications</h1>
             <p className="text-blue-200 text-sm">{unread > 0 ? `${unread} unread notification${unread > 1 ? "s" : ""}` : "All caught up!"}</p>
           </div>
@@ -2522,7 +2595,7 @@ function NotificationsPage({ notifications, navigate, onMarkRead }) {
   );
 }
 
-function ProfilePage({ issues, navigate }) {
+function ProfilePage({ issues, navigate, onBack }) {
   const myIssues = issues.filter(i => ["CIT-00421", "citizen-1", "citizen-5"].includes(i.reportedBy));
   const resolved = myIssues.filter(i => i.status === "Closed").length;
   const civicScore = 87;
@@ -2537,6 +2610,15 @@ function ProfilePage({ issues, navigate }) {
   return (
     <div className="min-h-screen pb-12" style={{ background: "linear-gradient(180deg, #F0F7FF 0%, #F8FAFC 60%)" }}>
       <div className="max-w-2xl mx-auto px-4 pt-6 space-y-5">
+        {onBack && (
+          <button
+            type="button"
+            onClick={onBack}
+            className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-bold transition-all shadow-2xs active:scale-95 cursor-pointer mb-2"
+          >
+            <ArrowLeft size={14} className="text-blue-600" /> Back to Home
+          </button>
+        )}
         {/* Profile Card Header */}
         <div className="glass-card rounded-3xl border border-slate-200/80 shadow-md p-6 relative overflow-hidden bg-white">
           <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4">
@@ -3573,6 +3655,7 @@ function AdminSLAPage({ issues }) {
 export default function App() {
   const [role, setRole] = useState("citizen");
   const [page, setPage] = useState("home");
+  const [pageHistory, setPageHistory] = useState(["home"]);
   const [selectedId, setSelectedId] = useState(null);
   const [reportStep, setReportStep] = useState("form");
   const [newIssue, setNewIssue] = useState(null);
@@ -3595,14 +3678,33 @@ export default function App() {
   useEffect(() => { localStorage.setItem("cc_notifs", JSON.stringify(notifications)); }, [notifications]);
 
   const navigate = useCallback((p, id) => {
+    setPageHistory(prev => {
+      if (prev[prev.length - 1] === p) return prev;
+      return [...prev, p];
+    });
     setPage(p);
     if (id) setSelectedId(id);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, []);
+
+  const goBack = useCallback(() => {
+    setPageHistory(prev => {
+      if (prev.length > 1) {
+        const nextHist = prev.slice(0, -1);
+        const prevPage = nextHist[nextHist.length - 1] || "home";
+        setPage(prevPage);
+        return nextHist;
+      }
+      setPage("home");
+      return ["home"];
+    });
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, []);
 
   const handleRoleSwitch = (r) => {
     setRole(r);
     setPage(r === "admin" ? "admin-dashboard" : "home");
+    setPageHistory([r === "admin" ? "admin-dashboard" : "home"]);
     setSelectedId(null);
     setReportStep("form");
   };
@@ -3705,44 +3807,45 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-background">
-      <CitizenHeader page={page} navigate={navigate} notifCount={unreadCount} role={role} setRole={handleRoleSwitch} />
+      <CitizenHeader page={page} navigate={navigate} notifCount={unreadCount} role={role} setRole={handleRoleSwitch} onBack={goBack} />
       <main>
         {page === "home" && <HomePage navigate={navigate} issues={issues} />}
 
-        {page === "report" && reportStep === "form" && <ReportIssuePage onSubmit={handleReportSubmit} />}
+        {page === "report" && reportStep === "form" && <ReportIssuePage onSubmit={handleReportSubmit} onBack={goBack} />}
         {page === "report" && reportStep === "verify" && newIssue && (
           <VerificationPage
             issue={newIssue}
             onViewIssue={() => { setSelectedId(newIssue.id); setPage("issue-detail"); setReportStep("form"); }}
             onDuplicate={() => setReportStep("duplicate")}
+            onBack={goBack}
           />
         )}
         {page === "report" && reportStep === "duplicate" && (
-          <DuplicatePage masterIssue={issues[0]} navigate={(p, id) => { navigate(p, id); setReportStep("form"); }} />
+          <DuplicatePage masterIssue={issues[0]} navigate={(p, id) => { navigate(p, id); setReportStep("form"); }} onBack={goBack} />
         )}
 
-        {page === "explore" && <ExplorePage issues={issues} navigate={navigate} />}
+        {page === "explore" && <ExplorePage issues={issues} navigate={navigate} onBack={goBack} />}
 
         {page === "issue-detail" && selectedIssue && (
           <IssueDetailPage
             issue={selectedIssue}
-            onBack={() => navigate("explore")}
+            onBack={goBack}
             onSupport={handleSupportIssue}
             onResolveVerify={(id) => { setSelectedId(id); navigate("resolve-verify"); }}
           />
         )}
 
-        {page === "complaints" && <MyComplaintsPage issues={issues} navigate={navigate} />}
+        {page === "complaints" && <MyComplaintsPage issues={issues} navigate={navigate} onBack={goBack} />}
 
         {page === "resolve-verify" && selectedIssue && (
-          <ResolutionVerifyPage issue={selectedIssue} onClose={handleCloseIssue} onReopen={handleReopenIssue} />
+          <ResolutionVerifyPage issue={selectedIssue} onClose={handleCloseIssue} onReopen={handleReopenIssue} onBack={goBack} />
         )}
 
         {page === "notifications" && (
-          <NotificationsPage notifications={notifications} navigate={navigate} onMarkRead={handleMarkNotifRead} />
+          <NotificationsPage notifications={notifications} navigate={navigate} onMarkRead={handleMarkNotifRead} onBack={goBack} />
         )}
 
-        {page === "profile" && <ProfilePage issues={issues} navigate={navigate} />}
+        {page === "profile" && <ProfilePage issues={issues} navigate={navigate} onBack={goBack} />}
       </main>
     </div>
   );
