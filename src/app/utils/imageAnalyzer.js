@@ -70,34 +70,106 @@ export async function processAndValidateImageFast(rawSource, fileNameHint = "") 
 
             const dataUrl = canvas.toDataURL("image/jpeg", 0.80);
 
-            // 2. Quick safety check for completely solid black dummy canvas
+            // 2. Strict Human / Person / Selfie / Face & Pitch Black Detection
             try {
-              const sampleW = Math.min(w, 20);
-              const sampleH = Math.min(h, 20);
-              const imgData = ctx.getImageData(0, 0, sampleW, sampleH);
+              const sampleStep = Math.max(1, Math.floor((w * h) / 3000));
+              const imgData = ctx.getImageData(0, 0, w, h);
               const pixels = imgData.data;
+
               let totalBrightness = 0;
               let maxPixel = 0;
-              const totalSampled = pixels.length / 4;
+              let skinPixels = 0;
+              let centerSkinPixels = 0;
+              let centerTotalPixels = 0;
+              let sampledCount = 0;
 
-              for (let i = 0; i < pixels.length; i += 4) {
+              const centerXMin = w * 0.18;
+              const centerXMax = w * 0.82;
+              const centerYMin = h * 0.12;
+              const centerYMax = h * 0.85;
+
+              for (let i = 0; i < pixels.length; i += 4 * sampleStep) {
+                const pixelIdx = i / 4;
+                const px = pixelIdx % w;
+                const py = Math.floor(pixelIdx / w);
+
                 const r = pixels[i];
                 const g = pixels[i + 1];
                 const b = pixels[i + 2];
+
                 const brightness = 0.299 * r + 0.587 * g + 0.114 * b;
                 totalBrightness += brightness;
                 if (brightness > maxPixel) maxPixel = brightness;
+                sampledCount++;
+
+                const sumRGB = r + g + b;
+                if (sumRGB > 0) {
+                  const normR = r / sumRGB;
+                  const normG = g / sumRGB;
+                  const normB = b / sumRGB;
+
+                  // Precise Human Skin Tone Chrominance Detector
+                  const isSkin =
+                    r > 95 &&
+                    g > 40 &&
+                    b > 20 &&
+                    r > g &&
+                    r > b &&
+                    (r - Math.min(g, b)) > 15 &&
+                    Math.abs(r - g) > 15 &&
+                    normR >= 0.36 &&
+                    normR <= 0.60 &&
+                    normG >= 0.24 &&
+                    normG <= 0.38 &&
+                    normB <= 0.28 &&
+                    (r / Math.max(1, b)) > 1.25;
+
+                  if (isSkin) {
+                    skinPixels++;
+                    if (px >= centerXMin && px <= centerXMax && py >= centerYMin && py <= centerYMax) {
+                      centerSkinPixels++;
+                    }
+                  }
+                }
+
+                if (px >= centerXMin && px <= centerXMax && py >= centerYMin && py <= centerYMax) {
+                  centerTotalPixels++;
+                }
               }
 
-              const avgBrightness = totalBrightness / Math.max(1, totalSampled);
+              const totalSampled = Math.max(1, sampledCount);
+              const avgBrightness = totalBrightness / totalSampled;
+              const skinRatio = skinPixels / totalSampled;
+              const centerSkinRatio = centerSkinPixels / Math.max(1, centerTotalPixels);
 
-              // Only reject if it's a 100% pure black empty image (< 3 brightness and max < 6)
+              // Check 1: Pitch black / blank image
               if (avgBrightness < 3 && maxPixel < 6) {
                 return resolve({
                   isValid: false,
                   dataUrl,
                   reason: "❌ Photo Rejected: Uploaded photo pitch-black / blank hai. Kripya outdoor defect ki saaf photo upload karein."
                 });
+              }
+
+              // Check 2: Human Face / Selfie / Person Detection
+              if (skinRatio > 0.18 || centerSkinRatio > 0.22) {
+                return resolve({
+                  isValid: false,
+                  dataUrl,
+                  reason: "❌ Photo Rejected: Upload ki gayi photo me vyakti (person/selfie) detect hui hai. Majak-masti ya fake complaint ke liye human photo allowed nahi hai. Sirf public outdoor defect (gaddha, kachra, light, water leak) ki photo upload karein."
+                });
+              }
+
+              // Check 3: Filename keyword hints for person / selfie
+              const humanKeywords = ["selfie", "person", "human", "face", "man", "girl", "boy", "portrait", "profile", "avatar", "people", "group_photo", "my_photo"];
+              for (const kw of humanKeywords) {
+                if (nameHint.includes(kw)) {
+                  return resolve({
+                    isValid: false,
+                    dataUrl,
+                    reason: "❌ Photo Rejected: Upload ki gayi photo me vyakti (person/selfie) detect hui hai. Kripya outdoor civic defect ki photo upload karein."
+                  });
+                }
               }
             } catch {
               // Ignore sample errors
