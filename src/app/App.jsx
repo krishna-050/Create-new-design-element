@@ -998,7 +998,7 @@ function ReportIssuePage({ onSubmit, onBack }) {
               onClick={onBack}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-semibold backdrop-blur-md border border-white/20 transition-all mb-4 active:scale-95 shadow-sm cursor-pointer"
             >
-              <ArrowLeft size={14} /> Back to Home
+              <ArrowLeft size={14} /> Back
             </button>
           )}
           <div className="flex items-center justify-between mb-4">
@@ -1704,7 +1704,7 @@ function ExplorePage({ issues, navigate, onBack }) {
               onClick={onBack}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-semibold backdrop-blur-md border border-white/20 transition-all mb-4 active:scale-95 shadow-sm cursor-pointer"
             >
-              <ArrowLeft size={14} /> Back to Home
+              <ArrowLeft size={14} /> Back
             </button>
           )}
           <h1 className="text-2xl font-black text-white mb-1">Explore Issues</h1>
@@ -1990,7 +1990,7 @@ function MyComplaintsPage({ issues, navigate, onBack }) {
               onClick={onBack}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-semibold backdrop-blur-md border border-white/20 transition-all mb-4 active:scale-95 shadow-sm cursor-pointer"
             >
-              <ArrowLeft size={14} /> Back to Home
+              <ArrowLeft size={14} /> Back
             </button>
           )}
           <h1 className="text-2xl font-black text-white mb-1">My Complaints</h1>
@@ -2238,7 +2238,7 @@ function ResolutionVerifyPage({ issue, onClose, onReopen, onBack }) {
           onClick={onBack}
           className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-bold transition-all shadow-2xs active:scale-95 cursor-pointer"
         >
-          <ArrowLeft size={15} className="text-blue-600" /> Back to Issue Details
+          <ArrowLeft size={15} className="text-blue-600" /> Back
         </button>
       )}
       <div className="bg-yellow-50 border border-yellow-300 rounded-xl p-4 flex items-center gap-3">
@@ -2501,7 +2501,7 @@ function NotificationsPage({ notifications, navigate, onMarkRead, onBack }) {
                 onClick={onBack}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-semibold backdrop-blur-md border border-white/20 transition-all mb-3 active:scale-95 shadow-sm cursor-pointer"
               >
-                <ArrowLeft size={14} /> Back to Home
+                <ArrowLeft size={14} /> Back
               </button>
             )}
             <h1 className="text-2xl font-black text-white mb-1">Notifications</h1>
@@ -2580,7 +2580,7 @@ function ProfilePage({ issues, navigate, onBack }) {
             onClick={onBack}
             className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-bold transition-all shadow-2xs active:scale-95 cursor-pointer mb-2"
           >
-            <ArrowLeft size={14} className="text-blue-600" /> Back to Home
+            <ArrowLeft size={14} className="text-blue-600" /> Back
           </button>
         )}
         {/* Profile Card Header */}
